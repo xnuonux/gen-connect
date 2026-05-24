@@ -6,9 +6,9 @@ import {
 } from "@/lib/types/contact";
 
 // the columns the pipeline needs. the embedded company resolves through the
-// contacts.company_id foreign key.
+// gc_contacts.company_id foreign key.
 const CONTACT_SELECT =
-  "id, name, email, title, stage, ai_score, warmth_score, last_action_at, created_at, company:companies(name, domain)";
+  "id, name, email, title, stage, ai_score, warmth_score, last_action_at, created_at, company:gc_companies(name, domain)";
 
 // postgrest returns numeric(3,1) as a string ... coerce so the ui can do math.
 function toNumber(value: unknown): number {
@@ -49,7 +49,7 @@ function mapContact(row: ContactRow): Contact {
 export async function listContacts(): Promise<Contact[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("contacts")
+    .from("gc_contacts")
     .select(CONTACT_SELECT)
     .in("stage", [...KANBAN_STAGES])
     .order("created_at", { ascending: false })
@@ -70,7 +70,7 @@ export async function updateContactStage(
 ): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase
-    .from("contacts")
+    .from("gc_contacts")
     .update({ stage })
     .eq("id", contactId);
 

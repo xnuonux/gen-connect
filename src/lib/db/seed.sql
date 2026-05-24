@@ -1,15 +1,16 @@
--- gen connect ... seed data
+-- gen connect ... seed data on the shared LUNARI substrate
 -- ~30 companies + 1000 contacts for the demo user, front-loaded into cold.
--- this is data, not schema ... run it through the supabase execute_sql tool.
+-- this is data, not schema ... run it through the supabase execute_sql tool
+-- against the gen connect tables on fpposmirumtbocqtxued.
 --
 -- prerequisite: the demo user must already exist in auth.users. sign in once
--- through the magic link, then run this file. re-running is safe ... it clears
--- the prior seed first.
+-- through the magic link, then run this file. re-running is safe ... it
+-- clears the prior seed first.
 
 do $$
 declare
-  -- the login email this seed belongs to. change it if you sign in as someone
-  -- else.
+  -- the login email this seed belongs to. change it if you sign in as
+  -- someone else.
   demo_email    text := 'xnuonux@gmail.com';
   demo_user     uuid;
 
@@ -70,18 +71,18 @@ begin
   end if;
 
   -- clear any prior seed so a re-run stays clean
-  delete from public.contacts
+  delete from public.gc_contacts
   where user_id = demo_user and source = 'seed';
 
-  delete from public.companies c
+  delete from public.gc_companies c
   where c.user_id = demo_user
     and not exists (
-      select 1 from public.contacts ct where ct.company_id = c.id
+      select 1 from public.gc_contacts ct where ct.company_id = c.id
     );
 
   -- companies
   for i in 1 .. array_length(company_names, 1) loop
-    insert into public.companies (user_id, name, domain, industry, size_range)
+    insert into public.gc_companies (user_id, name, domain, industry, size_range)
     values (
       demo_user,
       company_names[i],
@@ -108,7 +109,7 @@ begin
       else                   'closed'
     end;
 
-    insert into public.contacts (
+    insert into public.gc_contacts (
       user_id, company_id, name, email, title, stage,
       ai_score, warmth_score, source, last_action_at, created_at
     )
@@ -132,5 +133,5 @@ begin
     );
   end loop;
 
-  raise notice 'seed: % companies + 1000 contacts for %', n_companies, demo_email;
+  raise notice 'seed: % gc_companies + 1000 gc_contacts for %', n_companies, demo_email;
 end $$;
