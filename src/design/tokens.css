@@ -1,0 +1,43 @@
+/* lunari design tokens
+ * single source of truth for color, motion, typography
+ * gen accent (burgundy) reserved for gen-authored content only
+ * no raw hex in components ... everything references these vars */
+
+:root {
+  /* lunari base */
+  --lunari-black: #08090e;
+  --lunari-surface: #0f1117;
+  --lunari-surface-elevated: #14171f;
+  --lunari-cream: #f5ead8;
+  --lunari-gold: #c9a84c;
+  --lunari-crimson: #e94462;
+  --lunari-neutral-400: #8a8d96;
+  --lunari-neutral-500: #5d6068;
+
+  /* gen-specific */
+  --gen-accent: #7a1528;
+  --gen-accent-soft: #7a152833;
+
+  /* motion */
+  --motion-duration: 300ms;
+  --motion-easing: cubic-bezier(0.22, 0.68, 0.12, 1);
+}
+
+* {
+  border-color: var(--lunari-surface-elevated);
+}
+
+html,
+body {
+  background-color: var(--lunari-black);
+  color: var(--lunari-cream);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

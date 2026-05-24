@@ -1,0 +1,74 @@
+import { formatDistanceToNowStrict } from "date-fns";
+import { cn } from "@/lib/utils/cn";
+import { FlameScore } from "@/components/shared/FlameScore";
+import type { Contact } from "@/lib/types/contact";
+
+function initials(name: string | null): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  const letters = parts.map((part) => part[0] ?? "").join("");
+  return (letters.slice(0, 2) || "?").toUpperCase();
+}
+
+function relativeTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return formatDistanceToNowStrict(date);
+}
+
+type ContactCardProps = {
+  contact: Contact;
+  selected?: boolean;
+  dragging?: boolean;
+} & React.ComponentPropsWithRef<"div">;
+
+// the presentational contact card. no drag logic lives here ... KanbanCard
+// wraps this with dnd-kit, and the side panel will reuse it untouched.
+export function ContactCard({
+  contact,
+  selected = false,
+  dragging = false,
+  className,
+  ...props
+}: ContactCardProps) {
+  const company = contact.company?.name ?? null;
+  const subtitle = [contact.title, company].filter(Boolean).join("  ·  ");
+  const stamp = relativeTime(contact.lastActionAt ?? contact.createdAt);
+
+  return (
+    <div
+      className={cn(
+        "planetarium select-none rounded-md border bg-lunari-surface p-3",
+        "border-lunari-surface-elevated hover:bg-lunari-surface-elevated",
+        selected && "border-gen-accent ring-1 ring-gen-accent",
+        dragging && "rotate-[1deg] shadow-xl shadow-lunari-black/70",
+        className,
+      )}
+      {...props}
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lunari-black font-mono text-[10px] text-lunari-neutral-400">
+          {initials(contact.name)}
+        </span>
+        <span className="truncate text-sm font-medium text-lunari-cream">
+          {contact.name ?? "unnamed contact"}
+        </span>
+      </div>
+
+      {subtitle ? (
+        <p className="mt-2 truncate text-xs text-lunari-neutral-400">
+          {subtitle}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex items-center justify-between">
+        <FlameScore score={contact.warmthScore} />
+        {stamp ? (
+          <span className="font-mono text-[10px] text-lunari-neutral-500">
+            {stamp}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}

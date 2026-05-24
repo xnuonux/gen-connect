@@ -1,0 +1,16 @@
+allowBuilds:
+  sharp: set this to true or false
+  unrs-resolver: set this to true or false
+
+# pnpm 10 keeps its settings here now, not in package.json's "pnpm" field.
+#
+# onlyBuiltDependencies ... pnpm blocks dependency build scripts by default.
+# these two need theirs to run (native binaries), and pnpm refuses to run any
+# package script while an un-acknowledged build is outstanding.
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+# verifyDepsBeforeRun ... pnpm otherwise runs a full install check before every
+# `pnpm <script>`. scripts run against the installed tree ... skip the gate.
+verifyDepsBeforeRun: false
