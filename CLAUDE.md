@@ -76,6 +76,7 @@ GEN's drafting tone is a human closer who wants the meeting, not a SaaS template
 - voice corpus: @docs/03-voice-corpus-placeholder.md
 - roadmap: @docs/04-roadmap.md
 - claude code handoff: @docs/05-claude-code-handoff.md
+- signals spec: @docs/06-signals-spec.md
 
 ## skills loaded
 
