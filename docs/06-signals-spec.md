@@ -191,13 +191,19 @@ three to start. the rest land in v1.5 once these are stable.
   series b raises in the last 14 days. apify actor: crunchbase scraper +
   news search. cron: every 12h. dedupe: company_domain + round_type +
   announced_at. ICP filters: industry, round size, geo.
-- **hiring** ... company is posting roles in our buyer's function. apify
-  actor: linkedin jobs / google jobs / paged.com. cron: daily. dedupe:
-  company_domain + role_title. ICP filters: industry, size, role.
+- **product_launch** ... product hunt launches + launch posts on x for
+  prospects matching the creator/indie-hacker/micro-saas profile.
+  highest-converting signal type for creator outreach ... "saw you just
+  launched X" reply rates beat nearly every other cold opening. apify
+  actors: product hunt scraper + x search. cron: every 6h. dedupe:
+  launch_url + launched_at. ICP filters: category (creator tools, dev
+  tools, b2b saas, etc.), audience size, geo.
 
 ### v1.5 (queued)
 
-- product_launch (product hunt / launch posts on x)
+- hiring ... company posting roles in buyer's function. dropped from v1
+  because density is high but noise is too. wait for conversion data on
+  the cleaner three before scaling its volume.
 - role_change (departures + arrivals at icp companies)
 - content_post (prospect posts about a pain point we solve)
 - company_news (acquisitions, ipo, layoffs reversed, etc)
@@ -229,14 +235,50 @@ funding_round: {
   amount_usd, announced_at, investors[], geo, detected_at
 }
 
-hiring: {
-  source_id, company, company_domain, industry, role_title,
-  role_function, role_seniority, role_geo, posted_at, detected_at
+product_launch: {
+  source_id, launch_url, product_name, tagline, category, maker_name,
+  maker_handle, maker_profile_url, company, company_domain,
+  audience_size, geo, launched_at, detected_at
 }
 ```
 
 agents that miss the contract because the actor changed their output are
 auto-paused with an alert. the contract is the boundary.
+
+## ramp semantics
+
+`gc_signal_agents.ramp` is a **soft target with bounded overflow
+rollover**. specifically:
+
+- the ramp specifies a `max_hits_per_day` target. it is a target, not a
+  hard cap.
+- if a day's scoring finds more than `max_hits_per_day` actionable hits,
+  the overflow rolls forward to the next day only. overflow from day N
+  is queued for day N+1.
+- if a hit hasn't fired by the end of day N+1, it transitions to
+  `status='aged_out'`.
+- aged-out hits do **not** auto-fire on day N+2 or later. they stay in
+  the live feed under a "you missed these" affordance, one-click-
+  fireable by the user.
+- no silent drop. no infinite compounding.
+
+ramp jsonb shape:
+
+```jsonc
+{
+  "max_hits_per_day": 30,
+  "soft_cap": 50,           // upper bound including rollover
+  "time_windows": [
+    { "tz": "America/New_York", "days": ["mon","tue","wed","thu","fri"],
+      "from": "08:00", "to": "18:00" }
+  ]
+}
+```
+
+`soft_cap` is the safety: if rollover would push the day's queue above
+`soft_cap`, the surplus ages out immediately rather than rolling. this
+prevents a high-volume burst from monopolizing the agent's quota for
+days.
 
 ## the predicate language
 
@@ -272,9 +314,12 @@ evaluator lives in `src/lib/triggers/evaluate.ts` (lands week 4). pure
 function over `{ hit, contact, agent, user }` → `boolean`. tested with
 fixtures per signal_type.
 
-v1.5 may add a string DSL on top of the jsonb (auto-generated from the
-jsonb for display), but the storage shape stays jsonb so the api never
-needs a parser on the consumer side.
+v1.5 ships a **visual condition builder** (dropdowns + chip inputs + a
+tree view for nesting) that emits jsonb directly, plus a "raw jsonb"
+toggle for power users who want to edit the truth without the form. one
+source of truth, two surfaces over it. **no string dsl, ever** ...
+parsing a string dsl creates a second source of truth and a class of
+bugs that compound over years. the storage shape is the contract.
 
 ## the personalization slot system
 
@@ -312,6 +357,41 @@ a slot that fails to resolve (missing field) blocks draft generation with
 a typed error surfaced in the live feed card: "draft skipped ... missing
 signal.round_type." the human can override.
 
+## voice on signal drafts
+
+voice is **invariant**. register stays lowercase regardless of contact
+seniority. holding the lowercase line IS the moat ... a vp who can't read
+lowercase isn't the customer. the voice keeper rules apply identically
+on every signal-fired draft: lowercase, no em-dashes, "..." for pauses,
+dom register / user register depending on whose voice profile is loaded.
+
+what modulates per contact, given the signal payload:
+
+1. **which of the 5 angles fires** ... a series-a vp gets the "operator
+   who's been in your seat" angle, not the "fellow builder at 0" angle.
+   angle selection reads the signal payload + voice profile + recipient
+   seniority. the self-judge weighs `recipient_fit` as one of its 5 axes.
+2. **specific signal language** ... `{signal.new_title}`,
+   `{signal.product_name}`, `{signal.round_type}` get resolved before
+   generation. the model receives the resolved string, not a template.
+3. **credentialing p.s.** ... a senior recipient may warrant an optional
+   credentialing line (e.g., "p.s. ran growth at {prior_company}"). the
+   generator decides whether to include it based on
+   `signal_payload.recipient_seniority` and the user's voice corpus
+   conventions (does the user use p.s. signatures?). never forced, never
+   sycophantic.
+
+what does **not** modulate:
+
+- the register. lowercase always.
+- the punctuation rules. no em-dashes, ever.
+- the voice profile baseline. the dom prior or the user's per-user
+  voice profile holds firm regardless of who the recipient is.
+
+if the model output drifts toward title-case formal because a recipient
+"feels senior," the voice-keeper layer catches it before the draft lands
+in the unibox. drift kills the brand.
+
 ## the haiku scoring
 
 every raw signal hit gets scored by claude haiku 4.5 against the agent's
@@ -347,6 +427,30 @@ signal + paying customer) keeps the wedge sharp without bleeding compute.
 strategy ... we read it, never write it. gen-owned signups land as free
 tier by default; conversion flips the flag.
 
+## cooldown policy
+
+contacts get hit by more than one signal. promotion + funding inside the
+same week is common. v1 policy: **coalesce on a 7-day rolling window
+keyed on `contact_id`**.
+
+mechanics:
+
+- when a hit lands, check `gc_signal_hits` for any `actioned` hit in the
+  last 7 days for the same `contact_id`. if one exists, **do not fire a
+  separate sequence**.
+- the higher-scored signal wins as the **primary angle**. its
+  `{signal.*}` payload drives the first-touch.
+- the lower-scored signal joins as a **secondary payload** to the
+  5-angle generator ... not just logged for context, actively used to
+  enrich the angles. example: a vp who got promoted at a fintech that
+  just raised series a should hear about both, with the higher-scored
+  signal in the lead and the second one as the credentialing crossbar.
+- one sequence sent per contact per 7-day window. period.
+
+the cooldown lives in `src/lib/triggers/cooldown.ts`. pure function:
+`shouldCoalesce(newHit, history) -> { coalesce: bool, primary?: hit,
+secondary?: hit }`. tested with fixtures.
+
 ## the dismissal learning loop
 
 every dismissal carries a typed reason. a weekly sonnet 4.6 job aggregates
@@ -372,7 +476,30 @@ diff. ui surfaces it as a card on the trigger detail page: "your trigger
 for wrong_industry. apply refinement?"
 
 refinements never auto-apply in v1. the user reviews and clicks accept.
-that boundary stays human until we trust the loop.
+the accepted refinement writes to `gc_triggers.condition` jsonb. that
+boundary stays human until we trust the loop.
+
+### v1.5 auto-apply
+
+once we have conversion data and dismissal-classifier confidence to
+trust, v1.5 introduces gated auto-apply. all three conditions must hold:
+
+1. **>50 dismissals on the same trigger** ... statistical floor before
+   any refinement runs unattended.
+2. **refinement classifier confidence > 0.9** ... the sonnet job emits
+   a confidence score on its proposed refinement; only the high-
+   confidence ones qualify.
+3. **user opted in** ... per-trigger opt-in toggle in the trigger
+   detail ui, default off.
+
+even when auto-applied, every refinement comes with a **14-day rollback
+window** via a snooze-able notification: "we tightened your 'fintech
+promotions' trigger 3 days ago. dismissal rate dropped 71%. keep it, or
+roll back?" if the user rolls back, the change reverts and the
+classifier learns that this refinement was wrong for this user.
+
+the human stays in the loop. auto-apply is a convenience for the
+high-volume + high-confidence case, never an abdication.
 
 ## the ui surface
 
@@ -473,27 +600,44 @@ running 20 agents will not stampede the apify token.
 the rest of gen (drafting elsewhere, replies, voice extraction) the brief's
 $45 / month / user envelope holds.
 
-## open questions for dom
+## decisions
 
-1. **cooldown policy**: if a contact gets two signals in the same week
-   (e.g., promotion + funding), do we fire two separate sequences or
-   coalesce into one? lean: coalesce with priority order (highest score
-   wins), single sequence, second signal logged for context.
-2. **trigger predicate dsl**: jsonb is the v1 storage shape. is there
-   appetite for a thin string dsl on top in v1.5 for the trigger editor,
-   or do we stay jsonb-only?
-3. **ramp semantics**: hard daily cap with overflow drop, or soft target
-   with overflow rollover to next day? lean: soft target, log overflow.
-4. **dismissal-driven refinement**: weekly job proposes refinements but
-   never auto-applies in v1. confirm. v1.5 might auto-apply with high
-   confidence and a snooze-able notification.
-5. **voice weight on signal-fired drafts**: how hard does the dom prior
-   override the contact context? a vp at a series a fintech may warrant
-   a slightly more formal register; the voice keeper says lowercase
-   always. lean: hold the voice rule firm, signal payload modulates
-   content not register.
-6. **signal_type taxonomy for v1**: my pick is promotion, funding_round,
-   hiring. confirm or swap one for product_launch.
+the six questions from the first draft of this spec, resolved by dom.
+the rest of this doc reflects these decisions; this section is the
+ledger.
+
+1. **cooldown policy** ... coalesce on a 7-day rolling window keyed on
+   `contact_id`. higher-scored signal wins as primary angle; lower-scored
+   signal joins as a secondary payload that actively enriches the
+   5-angle generator (not just context). one sequence per contact per
+   7-day window. see "cooldown policy" section.
+2. **predicate dsl** ... jsonb storage forever. no string dsl, ever.
+   v1.5 ships a visual condition builder ui that emits jsonb directly,
+   plus a "raw jsonb" toggle for power users. one source of truth, two
+   surfaces over it. see "the predicate language" section.
+3. **ramp semantics** ... soft target with bounded overflow rollover.
+   overflow from day N rolls to day N+1 only. unfired by end of N+1 →
+   `status='aged_out'`. aged-out hits stay one-click-fireable in the ui
+   as "you missed these." `soft_cap` is the safety ceiling. see "ramp
+   semantics" section.
+4. **dismissal-driven refinement** ... never auto-apply in v1. weekly
+   sonnet job → proposed refinement card → user one-click apply →
+   write to `gc_triggers.condition`. v1.5 introduces gated auto-apply
+   requiring (a) >50 dismissals same trigger, (b) refinement classifier
+   confidence > 0.9, (c) user opted in. 14-day rollback window via
+   snooze-able notification. see "the dismissal learning loop"
+   section.
+5. **voice on signal-fired drafts** ... voice is invariant. register
+   stays lowercase regardless of contact seniority. what modulates per
+   contact: which of the 5 angles fires, specific signal language,
+   whether to include a credentialing p.s. holding the lowercase line
+   IS the moat. see "voice on signal drafts" section.
+6. **signal_type taxonomy for v1** ... swap. v1 ships promotion,
+   funding_round, product_launch. hiring drops to v1.5 because density
+   is high but noise is too. product_launch lands in v1 because
+   "saw you just launched X on product hunt" is the highest-converting
+   opening for the creator / indie-hacker / micro-saas icp gen connect
+   actually targets. see "signal types in v1" section.
 
 ## what this spec does not cover
 
