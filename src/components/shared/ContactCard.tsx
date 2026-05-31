@@ -1,4 +1,7 @@
+import Link from "next/link";
+import type { Route } from "next";
 import { formatDistanceToNowStrict } from "date-fns";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
 import type { Contact } from "@/lib/types/contact";
@@ -20,6 +23,8 @@ type ContactCardProps = {
   contact: Contact;
   selected?: boolean;
   dragging?: boolean;
+  // when set, a selected card reveals a "draft outreach" link to the studio.
+  draftHref?: string;
 } & React.ComponentPropsWithRef<"div">;
 
 // the presentational contact card. no drag logic lives here ... KanbanCard
@@ -28,6 +33,7 @@ export function ContactCard({
   contact,
   selected = false,
   dragging = false,
+  draftHref,
   className,
   ...props
 }: ContactCardProps) {
@@ -69,6 +75,18 @@ export function ContactCard({
           </span>
         ) : null}
       </div>
+
+      {selected && draftHref && !dragging ? (
+        <Link
+          href={draftHref as Route}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="planetarium mt-3 flex items-center justify-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-2.5 py-1.5 text-xs font-medium text-gen-accent hover:bg-gen-accent/20"
+        >
+          <Sparkles className="h-4 w-4 stroke-[1.25]" />
+          <span>draft outreach</span>
+        </Link>
+      ) : null}
     </div>
   );
 }

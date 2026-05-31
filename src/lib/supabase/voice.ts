@@ -34,6 +34,7 @@ type VoiceProfileReadRow = {
   avoided_phrases: string[] | null;
   idiosyncratic_phrases: string[] | null;
   emoji_signature: Record<string, unknown> | null;
+  outreach_overrides: Record<string, unknown> | null;
   outreach_samples_count: number;
   active_for_outreach: boolean;
   last_extracted_at: string | null;
@@ -52,7 +53,7 @@ export async function getVoiceProfile(): Promise<VoiceProfile | null> {
   const { data, error } = await supabase
     .from("voice_profiles")
     .select(
-      "user_id, register, punctuation_style, sentence_length_avg, sentence_length_variance, vocabulary_signature, formality_score, opening_patterns, closing_patterns, avoided_phrases, idiosyncratic_phrases, emoji_signature, outreach_samples_count, active_for_outreach, last_extracted_at, last_extracted_by, extraction_model, extraction_confidence",
+      "user_id, register, punctuation_style, sentence_length_avg, sentence_length_variance, vocabulary_signature, formality_score, opening_patterns, closing_patterns, avoided_phrases, idiosyncratic_phrases, emoji_signature, outreach_overrides, outreach_samples_count, active_for_outreach, last_extracted_at, last_extracted_by, extraction_model, extraction_confidence",
     )
     .maybeSingle();
 
@@ -206,7 +207,7 @@ export async function upsertVoiceProfileFromExtraction(args: {
     .from("voice_profiles")
     .upsert(row, { onConflict: "user_id" })
     .select(
-      "user_id, register, punctuation_style, sentence_length_avg, sentence_length_variance, vocabulary_signature, formality_score, opening_patterns, closing_patterns, avoided_phrases, idiosyncratic_phrases, emoji_signature, outreach_samples_count, active_for_outreach, last_extracted_at, last_extracted_by, extraction_model, extraction_confidence",
+      "user_id, register, punctuation_style, sentence_length_avg, sentence_length_variance, vocabulary_signature, formality_score, opening_patterns, closing_patterns, avoided_phrases, idiosyncratic_phrases, emoji_signature, outreach_overrides, outreach_samples_count, active_for_outreach, last_extracted_at, last_extracted_by, extraction_model, extraction_confidence",
     )
     .single();
 

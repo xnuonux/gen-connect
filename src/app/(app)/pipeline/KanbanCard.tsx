@@ -23,6 +23,7 @@ export function KanbanCard({ contact, selected, onSelect }: KanbanCardProps) {
       ref={setNodeRef}
       contact={contact}
       selected={selected}
+      draftHref={`/draft/${contact.id}`}
       onClick={() => onSelect(contact.id)}
       className={cn(
         "cursor-grab outline-none active:cursor-grabbing",
