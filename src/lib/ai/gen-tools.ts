@@ -1,11 +1,17 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
 import { findLeadsByDomains, verifyEmails } from "@/lib/enrichment/leads-search";
 import { loadLeads, type LeadInput } from "@/lib/supabase/leads";
+import {
+  listContactsFiltered,
+  moveContactsStage,
+  addContactTags,
+  pipelineSummary,
+} from "@/lib/supabase/copilot";
 import { enrichContactAction } from "@/app/actions/enrichment";
 import { generateDraftAction } from "@/app/actions/drafts";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
+import { type ContactStage } from "@/lib/types/contact";
 
 // the Gen copilot's tool belt. each wraps a capability shipped this build:
 // find (hunter), verify (millionverifier), load (rls insert), enrich (path A),
@@ -152,44 +158,77 @@ export function buildGenTools(userId: string) {
         search: z.string().nullish(),
         limit: z.number().int().min(1).max(50).optional(),
       }),
-      execute: async ({ stage, search, limit }) => {
-        const supabase = await createClient();
-        let q = supabase
-          .from("gc_contacts")
-          .select("id, name, title, stage, ai_score, company:gc_companies(name)")
-          .order("created_at", { ascending: false })
-          .limit(limit ?? 20);
-        if (stage) q = q.eq("stage", stage);
-        const { data, error } = await q;
-        if (error) return { error: error.message };
-        let rows = (data ?? []) as unknown as {
-          id: string;
-          name: string | null;
-          title: string | null;
-          stage: string;
-          ai_score: number | string | null;
-          company: { name: string | null } | null;
-        }[];
-        if (search) {
-          const n = search.toLowerCase();
-          rows = rows.filter(
-            (r) =>
-              (r.name ?? "").toLowerCase().includes(n) ||
-              (r.company?.name ?? "").toLowerCase().includes(n) ||
-              (r.title ?? "").toLowerCase().includes(n),
+      execute: async ({ stage, search, limit }) => ({
+        contacts: await listContactsFiltered({ stage, search, limit }),
+      }),
+    }),
+
+    move_stage: tool({
+      description:
+        "move one or more contacts to a pipeline stage. use 'do_not_contact' to dismiss/triage a bad lead. confirm with the user before moving a big batch.",
+      inputSchema: z.object({
+        contactIds: z.array(z.string().uuid()).min(1).max(200),
+        stage: z.enum([
+          "cold",
+          "enriched",
+          "drafted",
+          "sequenced",
+          "replied",
+          "booked",
+          "closed",
+          "do_not_contact",
+        ]),
+      }),
+      execute: async ({ contactIds, stage }) =>
+        moveContactsStage(contactIds, stage as ContactStage),
+    }),
+
+    tag_contacts: tool({
+      description:
+        "add tags to one or more contacts (merges with existing, deduped, lowercased). e.g. tag a set 'fintech' or 'warm'.",
+      inputSchema: z.object({
+        contactIds: z.array(z.string().uuid()).min(1).max(200),
+        tags: z.array(z.string()).min(1).max(10),
+      }),
+      execute: async ({ contactIds, tags }) => addContactTags(contactIds, tags),
+    }),
+
+    bulk_enrich: tool({
+      description:
+        "run path-A enrichment on several contacts at once (capped at 8 per call to keep cost in check). fills each one's personalization hook. returns a per-contact result.",
+      inputSchema: z.object({
+        contactIds: z.array(z.string().uuid()).min(1).max(8),
+      }),
+      execute: async ({ contactIds }) => {
+        const results: {
+          contactId: string;
+          ok: boolean;
+          hook?: string | null;
+          needsManual?: boolean;
+          error?: string;
+        }[] = [];
+        for (const contactId of contactIds) {
+          const r = await enrichContactAction({ contactId });
+          results.push(
+            r.ok
+              ? {
+                  contactId,
+                  ok: true,
+                  hook: r.run.fields.hook ?? null,
+                  needsManual: r.run.needsManual,
+                }
+              : { contactId, ok: false, error: r.error },
           );
         }
-        return {
-          contacts: rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            title: r.title,
-            company: r.company?.name ?? null,
-            stage: r.stage,
-            score: Number(r.ai_score) || 0,
-          })),
-        };
+        return { results };
       },
+    }),
+
+    pipeline_summary: tool({
+      description:
+        "a quick read of the whole pipeline: total contacts, the breakdown by stage, how many still lack a personalization hook, and the top contacts by score. use when the user asks what's in their pipeline or where things stand.",
+      inputSchema: z.object({}),
+      execute: async () => pipelineSummary(),
     }),
   };
 }
