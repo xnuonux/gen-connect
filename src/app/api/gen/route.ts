@@ -7,10 +7,19 @@ import {
 import { models } from "@/lib/ai/anthropic";
 import { buildGenTools } from "@/lib/ai/gen-tools";
 import { createClient } from "@/lib/supabase/server";
+import {
+  getConversation,
+  getOrCreateConversation,
+  loadRecentMessages,
+  persistMessage,
+  maybeCompact,
+} from "@/lib/supabase/gen-memory";
 
-// the Gen copilot agent loop. opus plans, the tools execute, multi-step until
-// the brief is done. auth-gated ... every tool acts as the signed-in user
-// through the same session-bound supabase client (RLS). streaming route per
+// the Gen copilot agent loop. the planner model plans, the tools execute,
+// multi-step until the brief is done. auth-gated ... every tool acts as the
+// signed-in user through the session-bound supabase client (RLS). the
+// conversation persists as the user's single forever-thread (gc_gen_*), with a
+// running compaction summary fed back in as memory. streaming route per
 // AGENTS.md (route handlers only for webhooks + streaming).
 export const maxDuration = 120;
 
@@ -37,34 +46,78 @@ export async function POST(req: Request) {
   if (!auth.user) {
     return new Response("sign in to talk to gen", { status: 401 });
   }
+  const userId = auth.user.id;
 
-  let messages: UIMessage[];
+  let message: UIMessage;
+  let conversationId: string | undefined;
   try {
-    const body = (await req.json()) as { messages?: UIMessage[] };
-    if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    const body = (await req.json()) as {
+      message?: UIMessage;
+      id?: string;
+    };
+    if (!body.message || !Array.isArray(body.message.parts)) {
       return new Response("nothing to send ... type something first.", {
         status: 400,
       });
     }
-    messages = body.messages;
+    message = body.message;
+    conversationId = body.id;
   } catch {
     return new Response("that didn't parse ... refresh and try again.", {
       status: 400,
     });
   }
-  const modelMessages = await convertToModelMessages(messages);
+
+  // resolve the user's forever-thread. trust the client id only if it's
+  // actually theirs (RLS) ... otherwise fall back to their own active thread.
+  const convo =
+    (conversationId ? await getConversation(conversationId) : null) ??
+    (await getOrCreateConversation(userId));
+
+  // the live context = recent persisted turns + the new message. older turns
+  // live in convo.summary (folded in below), not the message list.
+  const recent = (await loadRecentMessages(convo.id)) as unknown as UIMessage[];
+  const messages: UIMessage[] = [...recent, message];
+
+  // persist the user turn up front (idempotent), so it survives even if the
+  // stream errors mid-flight.
+  await persistMessage(userId, convo.id, {
+    id: message.id,
+    role: "user",
+    parts: message.parts as unknown[],
+  });
+
+  const system = convo.summary
+    ? `${SYSTEM}
+
+your running memory of your work with this user so far (build on it, do not make them repeat themselves):
+${convo.summary}`
+    : SYSTEM;
 
   // deferred hardening: this route spends real money per call (hunter,
-  // millionverifier, opus). v1 leans on auth + the per-request stopWhen cap.
-  // a per-user rate limit + per-user/day spend ceiling (upstash + usage_events)
-  // is the next hardening chunk ... non-negotiable before this goes multi-user.
+  // millionverifier, the planner model). v1 leans on auth + the per-request
+  // stopWhen cap. a per-user rate limit + per-user/day spend ceiling (upstash +
+  // usage_events) is the next hardening chunk ... before this goes multi-user.
   const result = streamText({
     model: models.planner,
-    system: SYSTEM,
-    messages: modelMessages,
-    tools: buildGenTools(auth.user.id),
+    system,
+    messages: await convertToModelMessages(messages),
+    tools: buildGenTools(userId),
     stopWhen: stepCountIs(12),
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    originalMessages: messages,
+    onFinish: async ({ messages: finalMessages }) => {
+      const last = finalMessages[finalMessages.length - 1];
+      if (last && last.role === "assistant") {
+        await persistMessage(userId, convo.id, {
+          id: last.id,
+          role: "assistant",
+          parts: last.parts as unknown[],
+        });
+      }
+      await maybeCompact(convo.id, convo.summary);
+    },
+  });
 }

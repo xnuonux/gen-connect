@@ -34,9 +34,24 @@ function toolName(partType: string): string {
   return partType.startsWith("tool-") ? partType.slice(5) : partType;
 }
 
-export function GenChat() {
+export function GenChat({
+  conversationId,
+  initialMessages,
+  summary,
+}: {
+  conversationId: string;
+  initialMessages: UIMessage[];
+  summary: string | null;
+}) {
   const { messages, sendMessage, status } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/gen" }),
+    id: conversationId,
+    messages: initialMessages,
+    transport: new DefaultChatTransport({
+      api: "/api/gen",
+      prepareSendMessagesRequest({ messages, id }) {
+        return { body: { message: messages[messages.length - 1], id } };
+      },
+    }),
   });
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -57,7 +72,8 @@ export function GenChat() {
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
+        {summary ? <MemoryBanner summary={summary} /> : null}
+        {messages.length === 0 && !summary ? (
           <EmptyState onPick={(t) => setInput(t)} />
         ) : (
           <div className="flex flex-col gap-4 pb-4">
@@ -187,6 +203,19 @@ function MessageRow({ message }: { message: UIMessage }) {
         return null;
       })}
     </div>
+  );
+}
+
+function MemoryBanner({ summary }: { summary: string }) {
+  return (
+    <details className="mb-4 rounded-md border border-lunari-surface-elevated bg-lunari-surface/60 px-3 py-2">
+      <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-500">
+        gen&apos;s memory of your work together
+      </summary>
+      <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-lunari-neutral-400">
+        {summary}
+      </p>
+    </details>
   );
 }
 
