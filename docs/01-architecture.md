@@ -152,6 +152,15 @@ env vars: netlify deploy contexts for prod vs preview vs branch. railway has the
 
 cost per active user per month at 500 drafts: ~$45 AI cost. priced at $79-149/mo plan ⇒ ~60-70% AI gross margin before infra.
 
+**provider reality (current).** the tiers above route through the `models`
+aliases in `src/lib/ai/anthropic.ts`. openrouter was removed in favor of two
+RAW providers: direct anthropic (opus 4.8 = claude-opus-4-8, sonnet 4.6, haiku
+4.5) and direct deepseek (v4-pro / v4-flash, official `@ai-sdk/deepseek`). the
+live aliases point at deepseek v4 while the anthropic key is unfunded ... flip
+them back to `anthropicPrimary` when it is. deepseek runs `generateObject` in
+tool-mode, not the json_schema `response_format` it rejects (that distinction
+is the difference between drafting working and 400ing).
+
 ## the voice scrub boundary
 
 voice enforcement is defense in depth, not a single prompt. the system prompt
@@ -169,3 +178,36 @@ voice-keeper." prompt asks, scrub guarantees. lifted straight from outreach
 v2's `scrubEmDashes()`, which ran in prod ... cheapest, most reliable voice
 enforcement there is. it sits at the persistence boundary so nothing reaches a
 contact, a saved template, or the unibox composer un-scrubbed.
+
+## the gen copilot
+
+the conversational control surface (`/gen`). an agentic loop, not a form.
+
+- **route** `src/app/api/gen/route.ts` ... a streaming POST running
+  `streamText` (planner model) with the tool belt, `stopWhen stepCountIs(12)`,
+  returning `toUIMessageStreamResponse()`. auth-gated; every tool acts as the
+  signed-in user through the session-bound supabase client (RLS). a route
+  handler, not a server action, because it streams.
+- **tool belt** `src/lib/ai/gen-tools.ts` (bound per-request to the user):
+  `plan` (the live ✔/◼/◻ checklist), `find_leads` (hunter domain-search by
+  agent-chosen domains), `verify_emails` (millionverifier batch),
+  `load_contacts` (rls insert + dedupe + company link), `enrich_contact` +
+  `draft_angles` (reuse the path-A waterfall + 5-angle engine), `list_contacts`,
+  `pipeline_summary`, `move_stage`, `tag_contacts`, `bulk_enrich`, `send_email`.
+- **send boundary** `src/lib/email/send.ts`: resend, safe by construction.
+  `GEN_SEND_MODE` defaults to `test` ... every send redirects to the user's own
+  inbox (subject tagged `[test -> the lead]`); only an explicit `=live` (with a
+  verified domain, e.g. lunari.pro) reaches a real recipient. the mode is
+  env-only, never a tool arg. sends log to the unibox.
+- **enrichment providers** `src/lib/enrichment/`: hunter domain-search +
+  millionverifier are wired live; apify (free-tier capped + permission-gated)
+  and apollo (gated on free) degrade gracefully; perplexity / crawl4ai are
+  path-A adapters that skip when unconfigured.
+- **guardrails**: gen confirms before any bulk load and before every send; the
+  system prompt holds the dom voice; tools return clean voice-checked errors,
+  never raw provider/pg text.
+
+deferred before this goes multi-user (tracked): a per-user rate limit +
+per-user/day cost ceiling on `/api/gen` (upstash + usage_events), wiring
+`src/middleware.ts` (the edge auth gate was scaffolded but never mounted), and
+removing the dev-only `/api/dev-login` backdoor.

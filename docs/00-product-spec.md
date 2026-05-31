@@ -25,6 +25,10 @@ mautic-style trigger trees. left: trigger library (event-based, time-based, sign
 
 this tab is the rules engine (event/time/signal predicate → action). it is a different thing from **comment-trigger lead capture** ... the "drop COWORK and i'll send the playbook" mechanic that watches a post, auto-DMs the lead magnet on a trigger word, and captures the commenter as a sourced contact. that's its own surface + tables (`comment_triggers` / `comment_captures`), scoped to email + reddit + owned channels only (no linkedin/ig comment scraping ... TOS), and lands post-v1. same word "trigger", two features ... don't conflate them. folded from outreach v2, where dom flagged the comment mechanic as the highest-ROI lead-gen move.
 
+### gen (the copilot)
+
+the surface that ties the other five together: a chat at `/gen` where you talk to gen in plain language and it runs the loop ... find leads, verify emails, load them into the pipeline, enrich, draft the 5 angles + self-judge, triage/tag/move stages, summarize the pipeline, and send (test-mode-safe). it declares its steps as a live checklist (✔ / ◼ / ◻) so you watch it work, confirms before it writes to your pipeline or sends a single email, and acts as you (every tool RLS-scoped). gen is the operator, not a dashboard ... everything the tabs do, you can do by asking. example: "find 20 fintech founders, verify, load the good ones, tag them fintech, enrich the top 5, draft the best, dismiss the junk." built this session ... the wedge taken all the way. see docs/01-architecture.md "the gen copilot" for the agent loop + tool belt.
+
 ## the enrichment waterfall
 
 two paths, two cost ceilings.
