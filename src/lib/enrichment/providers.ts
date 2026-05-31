@@ -231,33 +231,69 @@ const apifyLeadsFinder: EnrichmentProvider = {
   },
 };
 
-// ----- neverbounce ... email verification ("never send unverified") --------
+// ----- email verification ("never send unverified") ----------------------
+// prefers millionverifier (deep credit pool, good for bulk), falls back to
+// neverbounce. both normalize to a common status vocabulary:
+// valid | catchall | unknown | disposable | invalid. email_verified is true
+// only on "valid".
+const MV_STATUS: Record<string, string> = {
+  ok: "valid",
+  catch_all: "catchall",
+  unknown: "unknown",
+  disposable: "disposable",
+  invalid: "invalid",
+};
+
 const emailVerifier: EnrichmentProvider = {
   source: "email_verifier",
   async enrich(input) {
-    const key = process.env.NEVERBOUNCE_API_KEY;
-    if (!key) return skipped("email_verifier", "not_configured");
     const email = (input.email ?? "").trim();
     if (!email) return skipped("email_verifier", "no email to verify");
 
-    try {
-      const raw = (await fetchJson(
-        `https://api.neverbounce.com/v4/single/check?key=${encodeURIComponent(key)}&email=${encodeURIComponent(email)}`,
-        { method: "GET" },
-      )) as { status?: string; result?: string };
-
-      if (raw.status && raw.status !== "success") {
-        return errored("email_verifier", `neverbounce: ${raw.status}`);
+    const mvKey = process.env.MILLIONVERIFIER_API_KEY;
+    if (mvKey) {
+      try {
+        const raw = (await fetchJson(
+          `https://api.millionverifier.com/api/v3/?api=${encodeURIComponent(mvKey)}&email=${encodeURIComponent(email)}`,
+          { method: "GET" },
+        )) as { result?: string; error?: string };
+        if (raw.error) {
+          return errored("email_verifier", `millionverifier: ${raw.error}`);
+        }
+        const result = str(raw.result) ?? "unknown";
+        const status = MV_STATUS[result] ?? result;
+        return ok(
+          "email_verifier",
+          { email_status: status, email_verified: status === "valid" },
+          { via: "millionverifier", result },
+        );
+      } catch (e) {
+        return errored("email_verifier", e instanceof Error ? e.message : "failed");
       }
-      const result = str(raw.result) ?? "unknown";
-      const fields: EnrichedFields = {
-        email_status: result,
-        email_verified: result === "valid",
-      };
-      return ok("email_verifier", fields, { result });
-    } catch (e) {
-      return errored("email_verifier", e instanceof Error ? e.message : "failed");
     }
+
+    const nbKey = process.env.NEVERBOUNCE_API_KEY;
+    if (nbKey) {
+      try {
+        const raw = (await fetchJson(
+          `https://api.neverbounce.com/v4/single/check?key=${encodeURIComponent(nbKey)}&email=${encodeURIComponent(email)}`,
+          { method: "GET" },
+        )) as { status?: string; result?: string };
+        if (raw.status && raw.status !== "success") {
+          return errored("email_verifier", `neverbounce: ${raw.status}`);
+        }
+        const result = str(raw.result) ?? "unknown";
+        return ok(
+          "email_verifier",
+          { email_status: result, email_verified: result === "valid" },
+          { via: "neverbounce", result },
+        );
+      } catch (e) {
+        return errored("email_verifier", e instanceof Error ? e.message : "failed");
+      }
+    }
+
+    return skipped("email_verifier", "not_configured");
   },
 };
 
