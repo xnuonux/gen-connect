@@ -61,6 +61,29 @@ export async function runPathA(input: EnrichmentInput): Promise<EnrichmentRun> {
     }
   }
 
+  // post-step: verify a found email before it is trusted ("never send
+  // unverified"). this is NOT part of the fill-fields order ... it gates
+  // quality rather than satisfying the required set, so planNext (which stops
+  // once an email exists) would never schedule it.
+  if (fields.email) {
+    const verifier = PROVIDERS.email_verifier;
+    if (verifier) {
+      const vr = await verifier.enrich({
+        name: fields.name ?? null,
+        email: fields.email ?? null,
+        linkedin_url: fields.linkedin_url ?? null,
+        title: fields.title ?? null,
+        company_name: fields.company_name ?? null,
+        company_domain: fields.company_domain ?? null,
+      });
+      results.push(vr);
+      spentCents += vr.costCents;
+      if (vr.status === "ok") {
+        fields = mergeFields(fields, vr.fields);
+      }
+    }
+  }
+
   return {
     path: "path_a",
     fields,

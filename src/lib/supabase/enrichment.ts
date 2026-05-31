@@ -86,6 +86,8 @@ export async function applyEnrichmentToContact(args: {
     industry: f.industry ?? prior.industry,
     location: f.location ?? prior.location,
     linkedin_url: f.linkedin_url ?? prior.linkedin_url,
+    email_status: f.email_status ?? prior.email_status,
+    email_verified: f.email_verified ?? prior.email_verified,
     needs_manual: needsManual,
     last_enriched_at: new Date().toISOString(),
     last_enriched_cost_cents: run.totalCostCents,

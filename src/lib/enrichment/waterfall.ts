@@ -32,6 +32,9 @@ export function mergeFields(a: EnrichedFields, b: EnrichedFields): EnrichedField
     location: pick(a.location, b.location),
     hook: pick(a.hook, b.hook),
     signals: signals.length ? signals : undefined,
+    // verification comes from the post-step verifier (b) ... its read wins.
+    email_status: pick(b.email_status, a.email_status),
+    email_verified: b.email_verified ?? a.email_verified,
   };
 }
 

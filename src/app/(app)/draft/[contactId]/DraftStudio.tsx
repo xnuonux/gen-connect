@@ -55,6 +55,7 @@ export function DraftStudio({
   const [enrichSummary, setEnrichSummary] = useState<{
     costCents: number;
     sources: string[];
+    emailStatus: string | null;
   } | null>(null);
 
   async function onEnrich() {
@@ -73,6 +74,7 @@ export function DraftStudio({
       sources: result.run.results
         .filter((r) => r.status === "ok")
         .map((r) => r.source),
+      emailStatus: result.run.fields.email_status ?? null,
     });
     toast.success(
       newHook
@@ -198,7 +200,11 @@ function EnrichStrip({
   hook: string | null;
   needsManual: boolean;
   enriching: boolean;
-  summary: { costCents: number; sources: string[] } | null;
+  summary: {
+    costCents: number;
+    sources: string[];
+    emailStatus: string | null;
+  } | null;
   onEnrich: () => void;
 }) {
   return (
@@ -247,6 +253,9 @@ function EnrichStrip({
             ? `sources: ${summary.sources.join(", ")} · `
             : "no providers configured · "}
           {summary.costCents.toFixed(2)}c
+          {summary.emailStatus
+            ? ` · email ${summary.emailStatus}${summary.emailStatus === "valid" ? " (verified)" : ""}`
+            : ""}
         </p>
       ) : null}
     </div>

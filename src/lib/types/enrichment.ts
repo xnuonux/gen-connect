@@ -35,6 +35,10 @@ export type EnrichedFields = {
   hook?: string;
   // recent activity / talking points the drafter can lean on.
   signals?: string[];
+  // email verification (neverbounce): "valid" | "invalid" | "catchall" |
+  // "disposable" | "unknown". email_verified is true only on "valid".
+  email_status?: string;
+  email_verified?: boolean;
 };
 
 // one provider's contribution to the waterfall.
@@ -76,11 +80,14 @@ export const PROVIDER_COST_CENTS: Record<EnrichmentSource, number> = {
   manual: 0,
 };
 
-// path A provider order: cheap context first, email-of-last-resort last,
-// apollo as the fallback (architecture: apollo is the path A fallback).
+// path A provider order: cheap context first, the apify leads finder (apollo
+// backed, returns emails) as the email source, apollo's own match as the
+// fallback. the email_verifier (neverbounce) runs as a post-step in the
+// orchestrator, not in this fill-fields order ... it verifies, it does not
+// fill the required set.
 export const PATH_A_ORDER: EnrichmentSource[] = [
   "perplexity_sonar",
   "crawl4ai",
-  "apify_linkedin",
+  "apify_leads_finder",
   "apollo",
 ];

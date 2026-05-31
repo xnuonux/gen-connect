@@ -161,44 +161,102 @@ const crawl4ai: EnrichmentProvider = {
   },
 };
 
-// ----- apify linkedin profile + email ... email of last resort ------------
-// the token is gated separately from the actor id so a configured token never
-// burns credits on a guessed actor ... both must be set to run.
-const apifyLinkedin: EnrichmentProvider = {
-  source: "apify_linkedin",
+// ----- apify leads finder (boneswill/leads-generator) ... apollo-backed ----
+// single-lead lookup mode: name + company domain + title, totalResults 1,
+// emails on. gated on BOTH APIFY_TOKEN and APIFY_LEADS_ACTOR so a configured
+// token never burns credits on a guessed actor. requires enough identity (a
+// first name + a company domain) to land on the right person ... a name-only
+// search would return the wrong lead.
+const apifyLeadsFinder: EnrichmentProvider = {
+  source: "apify_leads_finder",
   async enrich(input) {
     const token = process.env.APIFY_TOKEN;
-    const actor = process.env.APIFY_LINKEDIN_ACTOR;
-    if (!token) return skipped("apify_linkedin", "not_configured");
+    const actor = process.env.APIFY_LEADS_ACTOR;
+    if (!token) return skipped("apify_leads_finder", "not_configured");
     if (!actor) {
-      return skipped("apify_linkedin", "no actor ... set APIFY_LINKEDIN_ACTOR");
+      return skipped("apify_leads_finder", "no actor ... set APIFY_LEADS_ACTOR");
     }
-    if (!input.linkedin_url) {
-      return skipped("apify_linkedin", "no linkedin url on the contact");
+    const name = (input.name ?? "").trim();
+    const parts = name.split(/\s+/).filter(Boolean);
+    const firstName = parts[0];
+    const lastName = parts.slice(1).join(" ");
+    if (!firstName || !input.company_domain) {
+      return skipped(
+        "apify_leads_finder",
+        "need a name + company domain for a precise match",
+      );
     }
 
     try {
-      const raw = (await fetchJson(
+      const dataset = (await fetchJson(
         `https://api.apify.com/v2/acts/${encodeURIComponent(actor)}/run-sync-get-dataset-items?token=${token}`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ profileUrls: [input.linkedin_url] }),
+          body: JSON.stringify({
+            firstName,
+            lastName: lastName || undefined,
+            companyDomain: [input.company_domain],
+            personTitle: input.title ? [input.title] : undefined,
+            includeEmails: true,
+            totalResults: 1,
+          }),
         },
-        60000,
+        90000,
       )) as Record<string, unknown>[];
 
-      const row = Array.isArray(raw) ? (raw[0] ?? {}) : {};
+      const row = (Array.isArray(dataset) ? dataset[0] : undefined) ?? {};
       const r = row as Record<string, unknown>;
+      const org = (r.organization ?? {}) as Record<string, unknown>;
+      const city = str(r.city);
+      const country = str(r.country);
       const fields: EnrichedFields = {
-        email: str(r.email) ?? str(r.workEmail),
-        title: str(r.headline) ?? str(r.title) ?? str(r.occupation),
-        company_name: str(r.companyName) ?? str(r.company),
-        location: str(r.location) ?? str(r.geoLocationName),
+        email: str(r.email),
+        title: str(r.title) ?? str(r.headline),
+        linkedin_url: str(r.linkedin_url),
+        company_name: str(org.name) ?? str(r.organization_name),
+        company_domain: str(org.primary_domain) ?? str(org.website_url),
+        industry: str(org.industry) ?? str(r.industry),
+        location: city && country ? `${city}, ${country}` : str(r.location),
       };
-      return ok("apify_linkedin", fields, { keys: Object.keys(r).slice(0, 20) });
+      return ok("apify_leads_finder", fields, {
+        found: Array.isArray(dataset) ? dataset.length : 0,
+      });
     } catch (e) {
-      return errored("apify_linkedin", e instanceof Error ? e.message : "failed");
+      return errored(
+        "apify_leads_finder",
+        e instanceof Error ? e.message : "failed",
+      );
+    }
+  },
+};
+
+// ----- neverbounce ... email verification ("never send unverified") --------
+const emailVerifier: EnrichmentProvider = {
+  source: "email_verifier",
+  async enrich(input) {
+    const key = process.env.NEVERBOUNCE_API_KEY;
+    if (!key) return skipped("email_verifier", "not_configured");
+    const email = (input.email ?? "").trim();
+    if (!email) return skipped("email_verifier", "no email to verify");
+
+    try {
+      const raw = (await fetchJson(
+        `https://api.neverbounce.com/v4/single/check?key=${encodeURIComponent(key)}&email=${encodeURIComponent(email)}`,
+        { method: "GET" },
+      )) as { status?: string; result?: string };
+
+      if (raw.status && raw.status !== "success") {
+        return errored("email_verifier", `neverbounce: ${raw.status}`);
+      }
+      const result = str(raw.result) ?? "unknown";
+      const fields: EnrichedFields = {
+        email_status: result,
+        email_verified: result === "valid",
+      };
+      return ok("email_verifier", fields, { result });
+    } catch (e) {
+      return errored("email_verifier", e instanceof Error ? e.message : "failed");
     }
   },
 };
@@ -246,10 +304,11 @@ const apollo: EnrichmentProvider = {
 export const PROVIDERS: Record<EnrichmentSource, EnrichmentProvider | null> = {
   perplexity_sonar: perplexity,
   crawl4ai,
-  apify_linkedin: apifyLinkedin,
+  apify_leads_finder: apifyLeadsFinder,
   apollo,
-  // path B providers live on the railway worker ... not wired in-app.
-  apify_leads_finder: null,
-  email_verifier: null,
+  email_verifier: emailVerifier,
+  // reserved for a dedicated single-profile scraper; the leads finder covers
+  // the email-of-last-resort job for now.
+  apify_linkedin: null,
   manual: null,
 };
