@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Sparkles, RefreshCw, Check, Copy, ArrowLeft } from "lucide-react";
+import { Sparkles, RefreshCw, Check, Copy, ArrowLeft, Search } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
@@ -11,6 +11,7 @@ import {
   generateDraftAction,
   overrideAngleAction,
 } from "@/app/actions/drafts";
+import { enrichContactAction } from "@/app/actions/enrichment";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import type { DraftRecord, DraftAngleRecord } from "@/lib/supabase/drafts";
 
@@ -31,10 +32,14 @@ export function DraftStudio({
   contact,
   initialDraft,
   voiceActive,
+  initialHook,
+  initialNeedsManual,
 }: {
   contact: StudioContact;
   initialDraft: DraftRecord | null;
   voiceActive: boolean;
+  initialHook: string | null;
+  initialNeedsManual: boolean;
 }) {
   const [draft, setDraft] = useState<DraftRecord | null>(initialDraft);
   const [busy, setBusy] = useState(false);
@@ -44,6 +49,37 @@ export function DraftStudio({
       initialDraft?.winning_angle_id ??
       null,
   );
+  const [hook, setHook] = useState<string | null>(initialHook);
+  const [needsManual, setNeedsManual] = useState<boolean>(initialNeedsManual);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichSummary, setEnrichSummary] = useState<{
+    costCents: number;
+    sources: string[];
+  } | null>(null);
+
+  async function onEnrich() {
+    setEnriching(true);
+    const result = await enrichContactAction({ contactId: contact.id });
+    setEnriching(false);
+    if (!result.ok) {
+      toast.error(result.error);
+      return;
+    }
+    const newHook = result.run.fields.hook ?? null;
+    setHook(newHook);
+    setNeedsManual(result.run.needsManual);
+    setEnrichSummary({
+      costCents: result.run.totalCostCents,
+      sources: result.run.results
+        .filter((r) => r.status === "ok")
+        .map((r) => r.source),
+    });
+    toast.success(
+      newHook
+        ? "enriched ... the hook will sharpen the angles."
+        : "enrichment ran ... no hook found, flagged for a manual look.",
+    );
+  }
 
   // best angle first, by the judge's weighted score.
   const ordered = useMemo(() => {
@@ -109,6 +145,14 @@ export function DraftStudio({
         </div>
       ) : null}
 
+      <EnrichStrip
+        hook={hook}
+        needsManual={needsManual}
+        enriching={enriching}
+        summary={enrichSummary}
+        onEnrich={onEnrich}
+      />
+
       {!draft ? (
         <EmptyState busy={busy} error={error} onGenerate={onGenerate} />
       ) : (
@@ -140,6 +184,71 @@ export function DraftStudio({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function EnrichStrip({
+  hook,
+  needsManual,
+  enriching,
+  summary,
+  onEnrich,
+}: {
+  hook: string | null;
+  needsManual: boolean;
+  enriching: boolean;
+  summary: { costCents: number; sources: string[] } | null;
+  onEnrich: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-lunari-surface-elevated bg-lunari-surface px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
+          enrichment
+        </span>
+        <button
+          type="button"
+          onClick={onEnrich}
+          disabled={enriching}
+          className="planetarium flex items-center gap-2 rounded-md border border-lunari-surface-elevated bg-lunari-surface px-3 py-1.5 text-xs text-lunari-cream hover:bg-lunari-surface-elevated disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Search
+            className={cn("h-4 w-4 stroke-[1.25]", enriching && "animate-pulse")}
+          />
+          <span>
+            {enriching ? "enriching ..." : hook ? "re-enrich" : "enrich"}
+          </span>
+        </button>
+      </div>
+
+      {hook ? (
+        <p className="mt-2 text-sm text-lunari-cream">
+          hook ...{" "}
+          <span className="text-lunari-cream/90">{hook}</span>
+        </p>
+      ) : (
+        <p className="mt-2 text-xs text-lunari-neutral-400">
+          no personalization hook yet. enrich to pull role context + recent
+          activity ... the angles get sharper with one.
+        </p>
+      )}
+
+      {needsManual ? (
+        <p className="mt-1 text-xs text-lunari-neutral-400">
+          needs a manual look ... no configured provider filled the required
+          fields.
+        </p>
+      ) : null}
+
+      {summary ? (
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-500">
+          {summary.sources.length
+            ? `sources: ${summary.sources.join(", ")} · `
+            : "no providers configured · "}
+          {summary.costCents.toFixed(2)}c
+        </p>
+      ) : null}
     </div>
   );
 }

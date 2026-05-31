@@ -18,7 +18,7 @@ export default async function DraftPage({
 
   const { data: row } = await supabase
     .from("gc_contacts")
-    .select("id, name, title, company:gc_companies(name, domain)")
+    .select("id, name, title, enrichment_data, company:gc_companies(name, domain)")
     .eq("id", contactId)
     .maybeSingle();
 
@@ -28,8 +28,17 @@ export default async function DraftPage({
     id: string;
     name: string | null;
     title: string | null;
+    enrichment_data: unknown;
     company: { name: string | null; domain: string | null } | null;
   };
+
+  const enrichment =
+    c.enrichment_data && typeof c.enrichment_data === "object"
+      ? (c.enrichment_data as Record<string, unknown>)
+      : {};
+  const initialHook =
+    typeof enrichment.hook === "string" ? enrichment.hook : null;
+  const initialNeedsManual = enrichment.needs_manual === true;
 
   const [draft, voice] = await Promise.all([
     getLatestDraftForContact(contactId),
@@ -58,6 +67,8 @@ export default async function DraftPage({
           }}
           initialDraft={draft}
           voiceActive={voice?.active_for_outreach ?? false}
+          initialHook={initialHook}
+          initialNeedsManual={initialNeedsManual}
         />
       </div>
     </div>
