@@ -1,38 +1,46 @@
-import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 
-const openrouter = createOpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENROUTER_API_KEY!,
-  headers: {
-    "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3001",
-    "X-Title": "gen connect",
-  },
+// two raw providers, no middleman. anthropic is the spec'd primary tier, but
+// its key is out of credits right now, so the live aliases route to deepseek.
+// to flip back when anthropic is funded, point each alias at its
+// anthropicPrimary counterpart below.
+
+// direct anthropic (raw api). raw model ids: opus 4.8 (claude-opus-4-8, the
+// current newest), sonnet 4.6 (claude-sonnet-4-6), haiku 4.5 (claude-haiku-4-5).
+const anthropic = createAnthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY ?? "",
 });
 
-// direct deepseek (own key, not proxied through openrouter) ... the
-// cost-conscious fallback path. the api is openai-compatible. real model ids
-// from the deepseek /models endpoint: deepseek-v4-pro, deepseek-v4-flash.
-const deepseek = createOpenAI({
-  baseURL: "https://api.deepseek.com",
-  apiKey: process.env.DEEPSEEK_API_KEY!,
+// direct deepseek (official provider). uses deepseek's /chat/completions and
+// its real capabilities ... critically, generateObject runs in tool-mode here,
+// not the json_schema response_format that deepseek rejects.
+const deepseek = createDeepSeek({
+  apiKey: process.env.DEEPSEEK_API_KEY ?? "",
 });
 
-// model aliases follow the routing spec in CLAUDE.md / AGENTS.md:
-//   - planner / 5-angle synthesis / self-judge ... opus 4.7
-//   - inline drafter / voice extraction / weekly learning loop ... sonnet 4.6
-//   - signal scoring / icp exploration ... haiku 4.5
-// the *Cheap + fallback aliases hit deepseek v4 directly ... the path we drop
-// to when opus/sonnet is overkill, rate-limited, or down.
+// parked until the anthropic key is funded ... swap the live aliases to these
+// to switch the workspace back off deepseek.
+const anthropicPrimary = {
+  planner: anthropic("claude-opus-4-8"),
+  drafter: anthropic("claude-sonnet-4-6"),
+  voiceExtractor: anthropic("claude-sonnet-4-6"),
+  judge: anthropic("claude-opus-4-8"),
+  scout: anthropic("claude-haiku-4-5"),
+} as const;
+void anthropicPrimary;
+
 export const models = {
-  planner: openrouter("anthropic/claude-opus-4.7"),
-  drafter: openrouter("anthropic/claude-sonnet-4.6"),
-  voiceExtractor: openrouter("anthropic/claude-sonnet-4.6"),
-  judge: openrouter("anthropic/claude-opus-4.7"),
-  scout: openrouter("anthropic/claude-haiku-4.5"),
-  fallback: deepseek("deepseek-v4-pro"),
+  planner: deepseek("deepseek-v4-pro"),
+  drafter: deepseek("deepseek-v4-pro"),
+  voiceExtractor: deepseek("deepseek-v4-pro"),
+  judge: deepseek("deepseek-v4-pro"),
+  scout: deepseek("deepseek-v4-flash"),
+  // funded-later primary; flip the aliases above to anthropicPrimary to use it.
+  fallback: anthropic("claude-opus-4-8"),
   plannerCheap: deepseek("deepseek-v4-pro"),
   drafterCheap: deepseek("deepseek-v4-flash"),
   scoutCheap: deepseek("deepseek-v4-flash"),
 } as const;
 
-export const provider = openrouter;
+export const provider = deepseek;

@@ -115,11 +115,14 @@ export function buildGenTools(userId: string) {
 
     draft_angles: tool({
       description:
-        "generate the 5-angle cold draft for one contact (opus, fed the voice profile), self-judge the five, pick the winner. returns the winning angle + the five with scores.",
+        "generate the 5-angle cold draft for one contact (fed their voice profile), self-judge all five, pick the winner. returns the winning angle (subject + body) + the five with scores. score is the judge's rating out of 10 (voice_match weighted heaviest) ... present it as 'X/10'.",
       inputSchema: z.object({ contactId: z.string().uuid() }),
       execute: async ({ contactId }) => {
         const r = await generateDraftAction({ contactId });
         if (!r.ok) return { ok: false, error: r.error };
+        // weighted_total maxes at 55 (voice_match counts 1.5x) ... map to a
+        // clean 0-10 so the copilot labels the denominator honestly.
+        const toTen = (w: number) => Math.round((w / 5.5) * 10) / 10;
         const winner =
           r.draft.angles.find((a) => a.score?.is_winner) ?? r.draft.angles[0];
         return {
@@ -129,12 +132,13 @@ export function buildGenTools(userId: string) {
                 angle: ANGLE_LABELS[winner.angle_type as AngleType],
                 subject: winner.subject,
                 body: winner.body,
+                score: toTen(winner.score?.weighted_total ?? 0),
               }
             : null,
           angles: r.draft.angles.map((a) => ({
             angle: ANGLE_LABELS[a.angle_type as AngleType],
             subject: a.subject,
-            score: a.score?.weighted_total ?? 0,
+            score: toTen(a.score?.weighted_total ?? 0),
           })),
         };
       },
