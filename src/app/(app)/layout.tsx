@@ -43,6 +43,14 @@ export default function AppLayout({
         </div>
 
         <nav className="flex-1 py-4 px-3 space-y-0.5">
+          <Link
+            href={"/gen" as Route}
+            className="planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-gen-accent hover:bg-gen-accent-soft"
+          >
+            <Sparkles className="h-4 w-4 stroke-[1.25]" />
+            <span>gen</span>
+          </Link>
+          <div className="my-1.5 h-px bg-lunari-surface-elevated" />
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
