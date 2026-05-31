@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import {
   Users,
   Inbox,
@@ -6,6 +7,7 @@ import {
   GitBranch,
   Zap,
   Workflow,
+  Sparkles,
 } from "lucide-react";
 import { Providers } from "@/app/providers";
 
@@ -56,7 +58,14 @@ export default function AppLayout({
           })}
         </nav>
 
-        <div className="px-3 py-4 border-t border-lunari-surface-elevated">
+        <div className="px-3 py-4 border-t border-lunari-surface-elevated space-y-3">
+          <Link
+            href={"/onboarding/voice" as Route}
+            className="planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm text-lunari-cream/80 hover:text-lunari-cream hover:bg-lunari-surface-elevated"
+          >
+            <Sparkles className="h-4 w-4 stroke-[1.25] text-gen-accent" />
+            <span>voice</span>
+          </Link>
           <div className="px-3 py-2 rounded-md bg-lunari-black/40">
             <div className="text-xs text-lunari-neutral-400 mb-1">domain</div>
             <div className="text-xs font-mono text-lunari-cream/70">
