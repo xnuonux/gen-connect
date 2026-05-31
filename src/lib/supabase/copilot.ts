@@ -65,6 +65,25 @@ export async function listContactsFiltered(args: {
   return rows;
 }
 
+// the email + name for one contact, for the send tool. null if not found
+// (or not the caller's, per RLS).
+export async function getContactEmail(
+  contactId: string,
+): Promise<{ email: string | null; name: string | null } | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_contacts")
+    .select("email, name")
+    .eq("id", contactId)
+    .maybeSingle();
+  if (error) throw new Error(`could not read contact ... ${error.message}`);
+  if (!data) return null;
+  return {
+    email: (data.email as string | null) ?? null,
+    name: (data.name as string | null) ?? null,
+  };
+}
+
 // move a set of contacts to a stage (incl. do_not_contact to dismiss). returns
 // how many actually moved (RLS filters out any that are not the caller's).
 export async function moveContactsStage(

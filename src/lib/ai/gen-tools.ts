@@ -7,7 +7,10 @@ import {
   moveContactsStage,
   addContactTags,
   pipelineSummary,
+  getContactEmail,
 } from "@/lib/supabase/copilot";
+import { sendDraftEmail } from "@/lib/email/send";
+import { logOutboundEmail } from "@/lib/supabase/unibox";
 import { enrichContactAction } from "@/app/actions/enrichment";
 import { generateDraftAction } from "@/app/actions/drafts";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
@@ -229,6 +232,35 @@ export function buildGenTools(userId: string) {
         "a quick read of the whole pipeline: total contacts, the breakdown by stage, how many still lack a personalization hook, and the top contacts by score. use when the user asks what's in their pipeline or where things stand.",
       inputSchema: z.object({}),
       execute: async () => pipelineSummary(),
+    }),
+
+    send_email: tool({
+      description:
+        "send an email to a contact via resend. this is the ONLY irreversible action you have ... ALWAYS show the user the recipient + subject + body and get an explicit yes before calling it, one send at a time. SAFE DEFAULT: test mode redirects the send to the user's own inbox (subject tagged '[test -> the lead]') so the real lead is NOT emailed unless GEN_SEND_MODE=live. report back honestly which mode it went in + who it actually reached. logs the send into the unibox.",
+      inputSchema: z.object({
+        contactId: z.string().uuid(),
+        subject: z.string().min(1),
+        body: z.string().min(1),
+      }),
+      execute: async ({ contactId, subject, body }) => {
+        const c = await getContactEmail(contactId);
+        if (!c?.email) {
+          return {
+            sent: false,
+            error: "that contact has no email on file ... enrich it first.",
+          };
+        }
+        const result = await sendDraftEmail({ to: c.email, subject, body });
+        if (result.sent) {
+          await logOutboundEmail({
+            contactId,
+            subject,
+            body,
+            externalId: result.id,
+          });
+        }
+        return result;
+      },
     }),
   };
 }
