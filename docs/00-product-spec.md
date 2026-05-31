@@ -6,22 +6,24 @@ AI outreach with closer instinct. voice-matched cold drafts, signal-driven trigg
 
 ## the 5 tabs
 
-shared shell: left icon rail (240px, collapsible to 56), top bar with live ticker (sends today, replies, booked, momentum), main pane, right contextual rail (contact details on hover, draft confidence in composer, deliverability pulse always-on). 5 tabs swap the main pane.
+shared shell: left icon rail (240px, collapsible to 56), top bar led by the hero stat ... "$X in opportunities since launch" (closed + pipeline value, sourced from `outcome_events`), with a secondary live ticker (sends today, replies, booked, momentum), main pane, right contextual rail (contact details on hover, draft confidence in composer, deliverability pulse always-on). 5 tabs swap the main pane. the headline number is dollars, not fuel ... the reframe that beats instantly's open-rate vanity. it makes the tool feel like it prints money, not burns credits. folded from outreach v2.
 
 ### pipeline
-twenty-grade record table OR plane-style kanban (toggle in top bar). kanban columns: cold, enriched, drafted, sequenced, replied, booked, closed. drag a card across stages fires the matching gen tool. row click opens side panel: full enrichment, sequence history, win timeline, draft history. inline edit every cell. multi-select for bulk enroll.
+twenty-grade record table OR plane-style kanban (toggle in top bar). kanban columns: cold, enriched, drafted, sequenced, replied, booked, closed. drag a card across stages fires the matching gen tool. row click opens side panel: full enrichment, sequence history, win timeline, draft history. inline edit every cell. multi-select for bulk enroll. each card carries a provenance breadcrumb ("↳ searching for a tool like yours", "↳ just launched on product hunt") so you see WHY a contact is in the pipeline at a glance, not just that they are ... reads from `contacts.source_signal_id` / `source_trigger_id`. the contact rail shows the full chain: signal ... company ... industry ... geo ... profile ... deal value ... stage. this is how the wedge proves itself in the UI, not just in the email. folded from outreach v2.
 
 ### unibox
-three-pane: thread list (left, react-virtuoso), thread view (center), contact rail (right). every inbound parsed in. gen-drafted reply lives in the composer with a confidence chip (1-10 flame + the angle used + `cmd+enter` to send). cal.com embed inserts a booking link in one click.
+three-pane: thread list (left, react-virtuoso), thread view (center), contact rail (right). every inbound parsed in. gen-drafted reply lives in the composer with a confidence chip (1-10 flame + the angle used + `cmd+enter` to send). cal.com embed inserts a booking link in one click. v1 threads email + linkedin + twitter, but the channel enum is widened to the full 10-platform set (instagram, tiktok, reddit, telegram, facebook, threads, bluesky) so inbound reply ingestion can light up per platform without a migration ... reading replies in is not automation and not a TOS landmine, it's the literal "unibox that doesn't suck" wedge. the reply drafter feeds the model the last ~10 messages as a them:/me: transcript and asks for a 1-3 sentence reply in the user's voice (the tested prompt from outreach v2, swapped onto the gen voice profile + 5-axis confidence).
 
 ### signals
-live feed of signal hits at top (real-time, ws or 6-hour poll). each hit is a card: signal type, contact preview, ai_score, "draft outreach" + "dismiss" actions. below the feed: agent grid showing each running signal agent with icp filter, hit count last 7d, status. "create agent" opens a 3-step wizard (icp → signal types → ramp).
+live feed of signal hits at top (real-time, ws or 6-hour poll). each hit is a card: signal type, contact preview, ai_score (flame), "draft outreach" + "dismiss" actions. below the feed: agent grid showing each running signal agent with icp filter, hit count last 7d, status. "create agent" opens a 4-step wizard (icp → signal types + precision slider → ramp → goal). the goal step anchors the 5-angle drafter. v1 builds the creator-intent core (searching_for, tool_mention, product_launch) plus the founder lane (promotion, funding_round) ... see docs/06-signals-spec.md for the full taxonomy.
 
 ### campaigns
 two-column: campaign list (left), selected campaign detail (right). list shows sequence name, enrolled count, replies, booked, status. detail shows the xyflow canvas + step-level stats + spintax preview + variant breakdown. "create campaign" opens the xyflow editor full-screen.
 
 ### triggers
 mautic-style trigger trees. left: trigger library (event-based, time-based, signal-based, manual). right: trigger detail editor. example payload: "when contact moves to enriched AND ai_score ≥ 7 → enroll in sequence X with 4-hour delay." each trigger has status, fire count, dry-run mode, one-click test against a sample contact.
+
+this tab is the rules engine (event/time/signal predicate → action). it is a different thing from **comment-trigger lead capture** ... the "drop COWORK and i'll send the playbook" mechanic that watches a post, auto-DMs the lead magnet on a trigger word, and captures the commenter as a sourced contact. that's its own surface + tables (`comment_triggers` / `comment_captures`), scoped to email + reddit + owned channels only (no linkedin/ig comment scraping ... TOS), and lands post-v1. same word "trigger", two features ... don't conflate them. folded from outreach v2, where dom flagged the comment mechanic as the highest-ROI lead-gen move.
 
 ## the enrichment waterfall
 
@@ -89,6 +91,28 @@ versioning: live sequences pin to a snapshot. edits create a new version. enroll
 4. **5-angle compute** ... opus single call (~$0.08/lead) vs parallel sonnet (~$0.025/lead). lean opus for first 1000 users.
 5. **win celebration trigger** ... booked? closed? both? lean: both, gold pulse + one-line gen quote.
 6. **gen.lunari.pro vs independent domain at launch** ... brief says deferred. confirming domain-agnostic build.
+
+## folded from the precursor
+
+outreach v2 (reference/LUNARI-OUTREACH-V2-BUNDLE.md) is the working prototype
+gen connect productizes ... the same 5 tabs, built inside the lunari monolith.
+gojiberry is the competitor whose persistent-signal-agent mechanic it
+reverse-engineered. a synthesis pass against both folded these in:
+
+- **dollars-not-fuel hero stat** ... the top-bar headline reframe (above).
+- **creator-intent signal taxonomy** ... searching_for + tool_mention join the
+  v1 build; the full taxonomy is locked into the CHECK constraint now so it
+  never needs a migration. see docs/06-signals-spec.md.
+- **goal step in the agent wizard** ... the 5-angle anchor (above + signals).
+- **comment-trigger lead capture** ... its own surface, scoped to compliant
+  channels, post-v1.
+- **provenance breadcrumb + contact-rail chain** ... why-they're-here in the
+  pipeline UI (above).
+- **server-side voice scrub-on-write** ... see docs/01-architecture.md.
+- **flame floor + precision slider + per-agent cost ceiling** ... see signals.
+
+deferred (dom): the **reddit playbook** (subreddit-by-icp master + warmup
+state machine) is a someday, not v1. the source docs live in `reference/`.
 
 ## the ship definition
 

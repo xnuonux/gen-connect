@@ -24,8 +24,10 @@ src/
 │   └── shared/                   # gen-specific composed components
 ├── lib/
 │   ├── supabase/                 # db helpers, typed queries
-│   ├── ai/                       # anthropic clients, drafting, judge
+│   ├── ai/                       # anthropic clients, drafting, judge, voice scrub
 │   ├── enrichment/               # apify orchestrator, fallback chain
+│   ├── signals/                  # flame floor, normalize contracts
+│   ├── triggers/                 # predicate eval, cooldown/coalesce
 │   ├── sequences/                # graph compiler, pg-boss adapter
 │   ├── deliverability/           # send pipeline, suppression, bounce
 │   ├── unibox/                   # inbound parser, threading
@@ -80,7 +82,7 @@ every table has: `id uuid pk`, `user_id uuid not null references auth.users`, `c
 
 ### core tables (v1)
 - `user_profiles` (voice_corpus jsonb, voice_profile_features jsonb, plan, onboarded_at)
-- `contacts` (the spine: email, linkedin_url, title, company_id, ai_score, warmth, stage, enrichment_data, source, tags)
+- `contacts` (the spine: email, linkedin_url, title, company_id, ai_score, warmth, stage, enrichment_data, source, tags, source_signal_id, source_trigger_id) ... the two source_* columns carry provenance so the pipeline card + contact rail can show "why they're here" (the breadcrumb fold from outreach v2)
 - `companies` (domain, name, industry, size, tech_stack)
 - `enrichment_traces` (source, cost_cents, fields_returned, raw_payload, status)
 - `sequences` (name, status, graph jsonb, version, enrolled_count, reply_count)
@@ -93,7 +95,7 @@ every table has: `id uuid pk`, `user_id uuid not null references auth.users`, `c
 - `draft_outcomes` (draft_id, sent_at, opened, clicked, replied, booked)
 - `voice_corpus` (user_id, sample_text, source, extracted_features)
 - `user_drafting_profiles` (preferences jsonb, last_trained_at)
-- `signal_agents` (icp jsonb, signal_type, ramp jsonb, status)
+- `signal_agents` (icp jsonb, signal_type, objective jsonb, ramp jsonb, score_threshold, max_cost_cents_per_day, status) ... `objective` is the wizard goal step (the 5-angle anchor); `max_cost_cents_per_day` caps the shared apify spend per agent
 - `signal_hits` (agent_id, contact_id, score, raw jsonb, dismissed)
 - `signal_dismissals` (hit_id, reason, learned jsonb)
 - `unibox_threads` (contact_id, channel, last_message_at, unread_count, status)
@@ -102,6 +104,9 @@ every table has: `id uuid pk`, `user_id uuid not null references auth.users`, `c
 - `deliverability_events` (event_type, contact_id, sending_domain_id, external_id, occurred_at)
 - `suppression_list` (email, reason, added_at)
 - `opportunities` (contact_id, source_draft_id, value_usd, stage, closed_at)
+- `outcome_events` (the dollars-not-fuel ledger: event_type [gig_booked, subscriber_acquired, stream_revenue, merch_sale, lead_qualified, meeting_booked, deal_closed], dollar_value, attributed_agent, source_signal_id fk, campaign_id fk, source_draft_id fk, occurred_at) ... powers the "$X in opportunities since launch" hero stat + per-source revenue attribution. note the event_type taxonomy is creator-flavored on purpose (gig/stream/merch), it tells you who the icp is. folded from outreach v2.
+- `comment_triggers` (platform, post_url, trigger_word, trigger_word_match, dm_template, lead_magnet_url, capture_email, max_responses, status) ... the "drop COWORK and i'll send the playbook" lead-capture mechanic. scoped to email + reddit + owned channels only (no linkedin/ig comment scraping ... TOS). its own feature, NOT a `triggers.kind`. designed-not-built, post-v1.
+- `comment_captures` (trigger_id, commenter_handle, comment_text, dm_status, contact_id fk, thread_id fk, email) ... one row per captured commenter, flows into the pipeline as a sourced contact.
 - `billing_subscriptions` (stripe_customer_id, stripe_sub_id, plan, status)
 - `usage_events` (kind, units, cost_cents)
 - `agent_actions` (audit log: actor, action, target, payload, occurred_at)
@@ -146,3 +151,21 @@ env vars: netlify deploy contexts for prod vs preview vs branch. railway has the
 | ICP exploration | haiku 4.5 | 2000/500 | ~$0.0045 | 1-2s |
 
 cost per active user per month at 500 drafts: ~$45 AI cost. priced at $79-149/mo plan ⇒ ~60-70% AI gross margin before infra.
+
+## the voice scrub boundary
+
+voice enforcement is defense in depth, not a single prompt. the system prompt
+asks for lowercase + no em-dashes, but we never trust the model to hold the
+line every time. so a pure `scrubVoice()` helper in `src/lib/ai/` runs on
+EVERY model output and every saved template before it touches the db:
+
+- replaces the em-dash + en-dash characters with "..." (collapsing runs of
+  four or more dots back to three)
+- flags forbidden phrases ("just wanted to", "circle back", "synergy", etc)
+- optionally (behind a flag) lowercases a draft that came back title-cased
+
+this is the mechanism behind "never ship a draft that hasn't passed
+voice-keeper." prompt asks, scrub guarantees. lifted straight from outreach
+v2's `scrubEmDashes()`, which ran in prod ... cheapest, most reliable voice
+enforcement there is. it sits at the persistence boundary so nothing reaches a
+contact, a saved template, or the unibox composer un-scrubbed.

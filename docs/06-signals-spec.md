@@ -81,18 +81,31 @@ four tables, all gc_-prefixed, all on the shared LUNARI substrate.
 ### gc_signal_agents
 
 one row per running signal source. the agent is the unit a user creates
-through the 3-step wizard.
+through the 4-step wizard (icp ... signal types ... ramp ... goal).
 
 ```
 id              uuid pk
 user_id         uuid not null fk auth.users
 name            text not null
-signal_type     text not null check (in 'promotion','funding_round','hiring',
-                  'product_launch','role_change','content_post','company_news')
+signal_type     text not null check (in
+                  -- creator-intent core (the wedge, v1-built)
+                  'product_launch','searching_for','tool_mention',
+                  -- founder lane (selling into companies, v1-built)
+                  'promotion','funding_round',
+                  -- relational + the rest (enum-valid, actor-pending)
+                  'engaged_with_content','mentioned_you','competitor_follow',
+                  'competitor_switch','hiring','role_change','content_post',
+                  'company_news')
 icp             jsonb not null     -- industry[], size_range[], geo[], role[],
                                    -- title_includes[], title_excludes[]
+objective       jsonb not null     -- { goal, pain_points[], tone } ... the
+                                   -- anchor the 5-angle drafter reads. set in
+                                   -- the wizard goal step. see "the ui surface".
 ramp            jsonb not null     -- { max_hits_per_day, soft_cap, time_windows }
-score_threshold numeric not null default 0.5
+score_threshold numeric not null default 0.5   -- surfaced as a 0-100 precision
+                                   -- slider, never a raw number. see "the ui"
+max_cost_cents_per_day int         -- per-agent spend ceiling on the shared
+                                   -- apify token. null = no cap. see "cost"
 apify_actor_id  text not null      -- which actor runs the scrape
 apify_run_config jsonb             -- search terms, filters, etc
 status          text not null default 'active'
@@ -101,6 +114,11 @@ last_ran_at     timestamptz
 created_at      timestamptz not null default now()
 updated_at      timestamptz not null default now()
 ```
+
+the `signal_type` check lists the full taxonomy on purpose. it is baked into
+a postgres CHECK constraint AND the haiku scoring contract, so widening it
+later is a migration. spec it wide once, build the actors incrementally. see
+"signal types in v1" for what ships first and why.
 
 rls: own_gc_signal_agents, standard `user_id = (select auth.uid())`.
 trigger uses shared `public.tg_set_updated_at()`.
@@ -179,37 +197,57 @@ trigger authoring to test against real signal history.
 
 ## signal types in v1
 
-three to start. the rest land in v1.5 once these are stable.
+five built to start, the rest enum-valid and actor-pending. this is the
+reconciliation from the secret-sauce review (reference/LUNARI-OUTREACH-V2 +
+gojiberry): the first draft's taxonomy was b2b-leaning (promotion at series-a
+fintechs, funding rounds), but gen's actual icp is solo founders AND creators.
+the highest-intent signals for that icp are the creator-intent ones gojiberry
+proved out ... someone literally searching for a tool like yours, or naming a
+competitor. those lead now.
 
-### v1 (in scope)
+### v1 creator-intent core (the wedge)
+
+- **searching_for** ... a public post that pattern-matches "looking for / need
+  a / anyone know a tool that ..." in the user's category. the single
+  highest-intent signal there is ... they told you they have the need. apify
+  actors: x search + reddit json + (later) linkedin search. cron: every 6h.
+  dedupe: post_url. ICP filters: category, keywords, geo.
+- **tool_mention** ... a prospect names a competitor or an adjacent tool in a
+  post or comment. "left {competitor}", "anyone else find {competitor}
+  clunky". warm by construction. apify actors: x search + reddit json. cron:
+  every 6h. dedupe: post_url + mentioned_tool.
+- **product_launch** ... product hunt launches + launch posts on x for the
+  creator/indie-hacker/micro-saas profile. "saw you just launched X" reply
+  rates beat nearly every other cold opening. apify actors: product hunt
+  scraper + x search. cron: every 6h. dedupe: launch_url + launched_at. ICP
+  filters: category (creator tools, dev tools, b2b saas, etc.), audience
+  size, geo.
+
+### v1 founder lane (selling into companies)
 
 - **promotion** ... linkedin profile change detected, new title contains
-  seniority keywords (vp, head of, director, chief). apify actor:
-  linkedin profile scraper. cron: every 6h. dedupe: profile_url +
-  detected_title. ICP filters: industry, company size, geo.
+  seniority keywords (vp, head of, director, chief). apify actor: linkedin
+  profile scraper. cron: every 6h. dedupe: profile_url + detected_title.
 - **funding_round** ... crunchbase + google news. fresh seed / series a /
-  series b raises in the last 14 days. apify actor: crunchbase scraper +
-  news search. cron: every 12h. dedupe: company_domain + round_type +
-  announced_at. ICP filters: industry, round size, geo.
-- **product_launch** ... product hunt launches + launch posts on x for
-  prospects matching the creator/indie-hacker/micro-saas profile.
-  highest-converting signal type for creator outreach ... "saw you just
-  launched X" reply rates beat nearly every other cold opening. apify
-  actors: product hunt scraper + x search. cron: every 6h. dedupe:
-  launch_url + launched_at. ICP filters: category (creator tools, dev
-  tools, b2b saas, etc.), audience size, geo.
+  series b raises in the last 14 days. apify actor: crunchbase scraper + news
+  search. cron: every 12h. dedupe: company_domain + round_type + announced_at.
 
-### v1.5 (queued)
+### enum-valid, actor-pending (v1.5+)
 
-- hiring ... company posting roles in buyer's function. dropped from v1
-  because density is high but noise is too. wait for conversion data on
-  the cleaner three before scaling its volume.
-- role_change (departures + arrivals at icp companies)
-- content_post (prospect posts about a pain point we solve)
-- company_news (acquisitions, ipo, layoffs reversed, etc)
+these are already in the CHECK constraint so adding them never costs a
+migration. each needs its own actor pick + dedupe key + a `hot/warm` keyword
+update for the flame floor (see "the haiku scoring").
 
-each v1.5 type needs its own actor pick and dedupe key. spec extends, not
-breaks ... `signal_type` is just a string discriminator.
+- **engaged_with_content** ... prospect liked/commented on your post or a
+  topic you own. the gojiberry "warm lead while you sleep" mechanic.
+- **mentioned_you** ... someone names the user or their product directly.
+- **competitor_follow** / **competitor_switch** ... started following or
+  publicly left a competitor. relationship signals, highest creator intent
+  after searching_for.
+- **hiring** ... company posting roles in the buyer's function. density high,
+  noise too ... waits for conversion data.
+- **role_change**, **content_post**, **company_news** ... departures/arrivals,
+  pain-point posts, acquisitions/ipo/layoffs.
 
 ## the apify substrate
 
@@ -239,6 +277,18 @@ product_launch: {
   source_id, launch_url, product_name, tagline, category, maker_name,
   maker_handle, maker_profile_url, company, company_domain,
   audience_size, geo, launched_at, detected_at
+}
+
+searching_for: {
+  source_id, post_url, platform, author_name, author_handle,
+  author_profile_url, post_text, matched_need, category, geo, posted_at,
+  detected_at
+}
+
+tool_mention: {
+  source_id, post_url, platform, author_name, author_handle,
+  author_profile_url, post_text, mentioned_tool, sentiment, category, geo,
+  posted_at, detected_at
 }
 ```
 
@@ -410,6 +460,26 @@ learning loop to read but never surface in the live feed.
 haiku is cheap enough to run on every raw event. don't pre-filter raw
 events with hand-coded regex ... let haiku do the judgment.
 
+### the flame floor (deterministic fallback)
+
+borrowed from outreach v2's `scoreSignalHit`: a pure, no-cost heuristic that
+runs as a **fallback**, never a suppressive prefilter. haiku stays the primary
+judge. the floor exists for two reasons:
+
+1. **resilience** ... when haiku is rate-limited or errors, the hit still gets
+   a usable score instead of stranding in `status='pending'`. `ai_rationale`
+   notes "scored by floor, haiku unavailable" for audit.
+2. **transparency** ... the user sees a debuggable number that doesn't depend
+   on a model call. the haiku score overrides it whenever haiku runs.
+
+the heuristic: base 0.5, lifted by signal_type intent class (creator-intent
+hot signals like `searching_for` / `tool_mention` / `competitor_switch` ...
+0.8; warm like `product_launch` / `engaged_with_content` ... 0.65), +0.1 for a
+senior-title or exact-category match, capped at 1.0. the hot/warm keyword
+lists are keyed to the taxonomy ... any new `signal_type` actor MUST update
+them or the floor scores it flat at base. lives in
+`src/lib/signals/flame.ts`, pure function, tested with fixtures per type.
+
 ## opus tier override
 
 5-angle drafting routing:
@@ -527,12 +597,22 @@ dropdown.
 one card per `gc_signal_agent`, showing icp summary, signal type, 7-day
 hit count, dismissal rate, status pill. card actions: pause, edit, archive.
 
-### create-agent wizard (modal, 3 steps)
+### create-agent wizard (modal, 4 steps)
 
 1. **icp** ... industry multi-select, size range, geo, role filters
-2. **signal types** ... pick one or more (v1 limits to one per agent)
-3. **ramp** ... max_hits_per_day, time windows (e.g., business hours
-   only), soft_cap
+2. **signal types** ... pick one or more (v1 limits to one per agent). a
+   single **precision slider** (0 = discovery/broad, 100 = high precision/
+   narrow) sets `score_threshold` under the hood. the user never sees a raw
+   0.5, they see "discovery ... high precision". borrowed from outreach v2.
+3. **ramp** ... max_hits_per_day, time windows (e.g., business hours only),
+   soft_cap, and the optional per-agent daily spend cap
+   (`max_cost_cents_per_day`).
+4. **goal** ... one field: "what are you trying to get them to do?" plus
+   optional pain-points + tone. writes `gc_signal_agents.objective`. this is
+   the anchor the 5-angle drafter reads ... without it the drafter is
+   guessing the ask. the secret-sauce review flagged this as the missing
+   bridge between an agent and the draft. (outreach v2 captured it as the
+   campaign-goal step; gen makes it first-class.)
 
 submit creates the gc_signal_agent row + queues the first apify run.
 
@@ -638,6 +718,39 @@ ledger.
    "saw you just launched X on product hunt" is the highest-converting
    opening for the creator / indie-hacker / micro-saas icp gen connect
    actually targets. see "signal types in v1" section.
+   **revised in the secret-sauce fold (decision 7) ... taxonomy widened.**
+
+### secret-sauce fold (from the outreach v2 + gojiberry review)
+
+the precursor (reference/LUNARI-OUTREACH-V2-BUNDLE.md + the gojiberry ref)
+was the working prototype gen connect productizes. a synthesis pass against
+it surfaced six folds. dom's calls:
+
+7. **taxonomy reconciled to the creator icp** ... the b2b-leaning three were
+   wrong-icp for solo creators. v1 now builds five: the creator-intent core
+   (searching_for, tool_mention, product_launch) plus the founder lane
+   (promotion, funding_round). the full taxonomy (including relational
+   signals: engaged_with_content, mentioned_you, competitor_follow/switch)
+   is in the CHECK constraint now so widening never costs a migration. this
+   was the lock-in-now call ... constraint + haiku contract bake it in.
+8. **the goal/objective step** ... the wizard gains a 4th step. the goal is
+   the anchor the 5-angle drafter reads. first-class, not inferred.
+9. **flame floor** ... a deterministic `scoreSignalHit` heuristic as a
+   fallback + transparent score, never a suppressive prefilter. haiku stays
+   primary. see "the haiku scoring".
+10. **precision slider** ... `score_threshold` is surfaced as a 0-100
+    discovery-to-precision dial, never a raw number.
+11. **per-agent cost ceiling** ... `max_cost_cents_per_day` protects the
+    shared apify token from a 20-agent user.
+12. **comment-trigger lead capture** ... the "drop COWORK and i'll send the
+    playbook" mechanic is its own feature (own tables, see architecture),
+    NOT a `gc_triggers.kind`. scoped to compliant channels only (email +
+    reddit + owned), never linkedin/ig comment scraping (TOS, scope-out).
+    queued post-v1. the dollars-not-fuel outcome ledger + provenance
+    breadcrumb folds live in the product spec + architecture.
+
+deferred by dom: the **reddit playbook** (subreddit-by-icp master + warmup
+state machine) is a someday, not v1.
 
 ## what this spec does not cover
 
