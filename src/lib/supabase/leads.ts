@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { type ContactStage } from "@/lib/types/contact";
 
 // load discovered leads into the pipeline as gc_contacts (+ gc_companies),
 // under the signed-in user via RLS. dedupes against existing emails, resolves
@@ -20,6 +21,15 @@ export type LeadInput = {
 export async function loadLeads(
   userId: string,
   leads: LeadInput[],
+  // import mode (user's own leads): source:'import', stage:'cold', unverified,
+  // no synthetic hook ... so they read as needs-enrichment and verify/enrich/
+  // draft stays the paid upsell. defaults preserve the gen-found-lead behavior.
+  opts?: {
+    source?: string;
+    stage?: ContactStage;
+    verified?: boolean;
+    syntheticHook?: boolean;
+  },
 ): Promise<{
   loaded: number;
   skipped: number;
@@ -112,32 +122,42 @@ export async function loadLeads(
     }
   }
 
+  const source = opts?.source ?? "gen";
+  const stage = opts?.stage ?? "enriched";
+  const syntheticHook = opts?.syntheticHook ?? true;
+  const sources = source === "import" ? ["import"] : ["hunter", "millionverifier"];
+
   const contactRows = toInsert.map((l) => {
     const dom = (l.company_domain ?? "").trim().toLowerCase();
     const score =
       typeof l.confidence === "number"
         ? Math.min(10, Math.round(l.confidence) / 10)
         : 0;
-    const hook =
-      l.hook ??
-      (l.title && l.company_name ? `${l.title} at ${l.company_name}` : null);
+    // synthetic hook (title at company) only for gen-found leads; imported
+    // leads keep a null hook so they correctly count as needs-enrichment.
+    const hook = syntheticHook
+      ? (l.hook ??
+        (l.title && l.company_name
+          ? `${l.title} at ${l.company_name}`
+          : null))
+      : (l.hook ?? null);
     return {
       user_id: userId,
       name: l.name,
       email: l.email.trim().toLowerCase(),
       title: l.title ?? null,
-      source: "gen",
+      source,
       ai_score: score,
-      stage: "enriched",
+      stage,
       company_id: dom ? (domainToId.get(dom) ?? null) : null,
       enrichment_data: {
         hook,
         company_name: l.company_name ?? null,
         company_domain: l.company_domain ?? null,
         email_status: l.email_status ?? null,
-        email_verified: l.email_verified ?? false,
+        email_verified: opts?.verified ?? (l.email_verified ?? false),
         confidence: l.confidence ?? null,
-        sources: ["hunter", "millionverifier"],
+        sources,
         loaded_by: "gen",
       },
     };

@@ -7,6 +7,8 @@ import {
 import { models } from "@/lib/ai/anthropic";
 import { buildGenTools } from "@/lib/ai/gen-tools";
 import { createClient } from "@/lib/supabase/server";
+import { getUserTier } from "@/lib/supabase/entitlements";
+import { checkGenRateLimit } from "@/lib/ratelimit/gen";
 import {
   getConversation,
   getOrCreateConversation,
@@ -49,6 +51,16 @@ export async function POST(req: Request) {
     return new Response("sign in to talk to gen", { status: 401 });
   }
   const userId = auth.user.id;
+
+  // per-user rate limit (sliding window). degrades to always-allow when upstash
+  // isn't configured, e.g. local dev ... so it only bites a deployed instance.
+  const { success: withinRate } = await checkGenRateLimit(userId);
+  if (!withinRate) {
+    return new Response(
+      "easy ... you're moving fast. give it a few seconds and try again.",
+      { status: 429 },
+    );
+  }
 
   let message: UIMessage;
   let conversationId: string | undefined;
@@ -102,17 +114,31 @@ export async function POST(req: Request) {
     parts: incoming.parts as unknown[],
   });
 
-  const system = convo.summary
-    ? `${SYSTEM}
+  // the free/paid line ... standalone signups default to free. gates the
+  // money-costing tools (find / verify / enrich / draft / send); the zero-cost
+  // tools (organize, import, load) are open to everyone.
+  const tier = await getUserTier(userId);
+  const tierBlock = `
+
+the user is on the ${tier} plan.
+- free can: import their own existing leads (import_leads ... free, lands them cold + still needing enrichment) and organize the pipeline (list_contacts, pipeline_summary, move_stage, tag_contacts). all zero cost.
+- the paid plan unlocks the moves that cost money: find_leads, verify_emails, enrich, draft, send ... and load_contacts (the terminal step of the gen-found find -> verify -> load flow). to bring in a user's OWN list, always use import_leads, never load_contacts.
+- if a free user asks for a paid move, do NOT pretend you ran it. say plainly it's a paid action, then offer the free path: bring your own list (import_leads), organize what's there, see where things stand. warm, never pushy.
+- a paid tool can still come back blocked:'daily_cap' if they hit today's spend ceiling ... relay that honestly and offer to keep organizing in the meantime.`;
+
+  const system =
+    SYSTEM +
+    tierBlock +
+    (convo.summary
+      ? `
 
 your running memory of your work with this user so far (build on it, do not make them repeat themselves):
 ${convo.summary}`
-    : SYSTEM;
+      : "");
 
-  // deferred hardening: this route spends real money per call (hunter,
-  // millionverifier, the planner model). v1 leans on auth + the per-request
-  // stopWhen cap. a per-user rate limit + per-user/day spend ceiling (upstash +
-  // usage_events) is the next hardening chunk ... before this goes multi-user.
+  // cost-protected: the rate limit above caps bursts, getUserTier gates the
+  // money-costing tools by plan, and each such tool checks the per-user/day
+  // spend ceiling (gc_usage_events) before it runs. stopWhen bounds one turn.
   const result = streamText({
     model: models.planner,
     system,
@@ -123,7 +149,7 @@ ${convo.summary}`
     messages: await convertToModelMessages(prepareReplayMessages(messages), {
       ignoreIncompleteToolCalls: true,
     }),
-    tools: buildGenTools(userId),
+    tools: buildGenTools(userId, tier),
     stopWhen: stepCountIs(12),
   });
 

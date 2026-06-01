@@ -15,12 +15,24 @@ import { enrichContactAction } from "@/app/actions/enrichment";
 import { generateDraftAction } from "@/app/actions/drafts";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import { type ContactStage } from "@/lib/types/contact";
+import { type Tier } from "@/lib/supabase/entitlements";
+import { costGate, TOOL_COST_CENTS } from "@/lib/ai/gen-guard";
+import { recordUsage } from "@/lib/supabase/usage";
 
 // the Gen copilot's tool belt. each wraps a capability shipped this build:
-// find (hunter), verify (millionverifier), load (rls insert), enrich (path A),
-// draft (5-angle + judge), read pipeline. the agent plans which to call from
-// the user's brief. bound to the signed-in user so every write is theirs.
-export function buildGenTools(userId: string) {
+// find (hunter), verify (millionverifier), load + import (rls insert), enrich
+// (path A), draft (5-angle + judge), read pipeline. the agent plans which to
+// call from the user's brief. bound to the signed-in user so every write is
+// theirs.
+//
+// the money-costing tools call costGate(userId, tier, projectedCents) FIRST,
+// passing the most this call could spend ... free users get a clean voice-checked
+// refusal, paid users are refused if this call would breach today's ceiling, and
+// on a pass the ACTUAL spend (scaled by fan-out) is logged via recordUsage(). the
+// zero-cost organize/import tools never gate. load_contacts is the terminal step
+// of the paid find->verify->load flow, so it is paid-gated too (free users bring
+// their own list via import_leads, which stamps truthful import provenance).
+export function buildGenTools(userId: string, tier: Tier) {
   return {
     plan: tool({
       description:
@@ -41,7 +53,7 @@ export function buildGenTools(userId: string) {
 
     find_leads: tool({
       description:
-        "find real leads at company domains via hunter. YOU supply the domains ... you know which companies fit the brief (a16z.com / sequoiacap.com for vc, stripe.com / ramp.com for tech, etc). optional titleIncludes filters by role. returns candidates with emails + confidence. this does NOT load anything ... show the user and get a yes before load_contacts.",
+        "find real leads at company domains via hunter. YOU supply the domains ... you know which companies fit the brief (a16z.com / sequoiacap.com for vc, stripe.com / ramp.com for tech, etc). optional titleIncludes filters by role. returns candidates with emails + confidence. this does NOT load anything ... show the user and get a yes before load_contacts. PAID action.",
       inputSchema: z.object({
         domains: z
           .array(z.string())
@@ -55,11 +67,26 @@ export function buildGenTools(userId: string) {
         perDomain: z.number().int().min(1).max(25).optional(),
       }),
       execute: async ({ domains, titleIncludes, perDomain }) => {
+        // hunter bills per domain-search request; cost scales with the domains
+        // actually queried (capped at 12), so the ledger tracks real fan-out.
+        const domainsQueried = Math.min(domains.length, 12);
+        const gate = await costGate(
+          userId,
+          tier,
+          TOOL_COST_CENTS.find_leads * domainsQueried,
+        );
+        if (gate) return gate;
         const { leads, notes } = await findLeadsByDomains({
           domains,
           titleIncludes,
           perDomain,
         });
+        await recordUsage(
+          userId,
+          "find_leads",
+          TOOL_COST_CENTS.find_leads * domainsQueried,
+          domainsQueried,
+        );
         return {
           count: leads.length,
           notes,
@@ -77,14 +104,30 @@ export function buildGenTools(userId: string) {
 
     verify_emails: tool({
       description:
-        "verify a batch of emails (millionverifier). returns status per email: valid | catchall | unknown | disposable | invalid. drop invalid + disposable before loading. capped at 60.",
+        "verify a batch of emails (millionverifier). returns status per email: valid | catchall | unknown | disposable | invalid. drop invalid + disposable before loading. capped at 60. PAID action.",
       inputSchema: z.object({ emails: z.array(z.string()).min(1).max(60) }),
-      execute: async ({ emails }) => ({ results: await verifyEmails(emails) }),
+      execute: async ({ emails }) => {
+        // billed per email ... cost scales with the batch size.
+        const gate = await costGate(
+          userId,
+          tier,
+          TOOL_COST_CENTS.verify_emails * emails.length,
+        );
+        if (gate) return gate;
+        const results = await verifyEmails(emails);
+        await recordUsage(
+          userId,
+          "verify_emails",
+          TOOL_COST_CENTS.verify_emails * emails.length,
+          emails.length,
+        );
+        return { results };
+      },
     }),
 
     load_contacts: tool({
       description:
-        "load leads into the pipeline as enriched contacts, under the user. dedupes + skips already-known emails, links companies. ONLY call after showing the candidates and getting an explicit yes.",
+        "load gen-FOUND, verified leads into the pipeline as enriched contacts (the terminal step of the find_leads -> verify_emails -> load_contacts flow). dedupes + skips already-known emails, links companies. to bring in the user's OWN existing list, use import_leads instead (that is the free path). ONLY call after showing the candidates and getting an explicit yes.",
       inputSchema: z.object({
         leads: z
           .array(
@@ -103,16 +146,76 @@ export function buildGenTools(userId: string) {
           .min(1)
           .max(100),
       }),
-      execute: async ({ leads }) => loadLeads(userId, leads as LeadInput[]),
+      execute: async ({ leads }) => {
+        // load_contacts stamps hunter/millionverifier provenance + 'enriched'
+        // stage ... only truthful for gen-found leads (a paid flow). a free user
+        // bringing their own list must go through import_leads (truthful 'import'
+        // provenance, cold, needs-enrichment) so the upsell isn't laundered away.
+        if (tier !== "paid") {
+          return {
+            ok: false,
+            blocked: "paid_only",
+            message:
+              "load_contacts is the paid find -> verify -> load step. to bring in your own list, free, i'll use import_leads ... want me to?",
+          };
+        }
+        return loadLeads(userId, leads as LeadInput[]);
+      },
+    }),
+
+    import_leads: tool({
+      description:
+        "import the user's OWN existing leads from structured rows (name + email, optional company + title). FREE ... no external lookup, no cost. loads them as COLD contacts that still need verify / enrich / draft (those are the paid moves). use this whenever someone wants to bring in a list they already have. ALWAYS show the parsed count + a few names and get a yes before loading.",
+      inputSchema: z.object({
+        rows: z
+          .array(
+            z.object({
+              name: z.string(),
+              email: z.string(),
+              company_name: z.string().nullish(),
+              title: z.string().nullish(),
+            }),
+          )
+          .min(1)
+          .max(500),
+      }),
+      execute: async ({ rows }) => {
+        const clean = rows.filter((r) => /^\S+@\S+\.\S+$/.test(r.email.trim()));
+        if (clean.length === 0) {
+          return {
+            loaded: 0,
+            skipped: 0,
+            error:
+              "none of those had a usable email ... give me a name + email for each lead.",
+          };
+        }
+        return loadLeads(userId, clean as LeadInput[], {
+          source: "import",
+          stage: "cold",
+          verified: false,
+          syntheticHook: false,
+        });
+      },
     }),
 
     enrich_contact: tool({
       description:
-        "run path-A enrichment on one contact (perplexity / apollo / crawl4ai if configured) ... fills the personalization hook the drafter reads. returns what was found + needs_manual.",
+        "run path-A enrichment on one contact (perplexity / apollo / crawl4ai if configured) ... fills the personalization hook the drafter reads. returns what was found + needs_manual. PAID action.",
       inputSchema: z.object({ contactId: z.string().uuid() }),
       execute: async ({ contactId }) => {
+        const gate = await costGate(
+          userId,
+          tier,
+          TOOL_COST_CENTS.enrich_contact,
+        );
+        if (gate) return gate;
         const r = await enrichContactAction({ contactId });
         if (!r.ok) return { ok: false, error: r.error };
+        await recordUsage(
+          userId,
+          "enrich_contact",
+          r.run.totalCostCents ?? TOOL_COST_CENTS.enrich_contact,
+        );
         return {
           ok: true,
           hook: r.run.fields.hook ?? null,
@@ -124,11 +227,18 @@ export function buildGenTools(userId: string) {
 
     draft_angles: tool({
       description:
-        "generate the 5-angle cold draft for one contact (fed their voice profile), self-judge all five, pick the winner. returns the winning angle (subject + body) + the five with scores. score is the judge's rating out of 10 (voice_match weighted heaviest) ... present it as 'X/10'.",
+        "generate the 5-angle cold draft for one contact (fed their voice profile), self-judge all five, pick the winner. returns the winning angle (subject + body) + the five with scores. score is the judge's rating out of 10 (voice_match weighted heaviest) ... present it as 'X/10'. PAID action.",
       inputSchema: z.object({ contactId: z.string().uuid() }),
       execute: async ({ contactId }) => {
+        const gate = await costGate(
+          userId,
+          tier,
+          TOOL_COST_CENTS.draft_angles,
+        );
+        if (gate) return gate;
         const r = await generateDraftAction({ contactId });
         if (!r.ok) return { ok: false, error: r.error };
+        await recordUsage(userId, "draft_angles", TOOL_COST_CENTS.draft_angles);
         // weighted_total maxes at 55 (voice_match counts 1.5x) ... map to a
         // clean 0-10 so the copilot labels the denominator honestly.
         const toTen = (w: number) => Math.round((w / 5.5) * 10) / 10;
@@ -198,11 +308,17 @@ export function buildGenTools(userId: string) {
 
     bulk_enrich: tool({
       description:
-        "run path-A enrichment on several contacts at once (capped at 8 per call to keep cost in check). fills each one's personalization hook. returns a per-contact result.",
+        "run path-A enrichment on several contacts at once (capped at 8 per call to keep cost in check). fills each one's personalization hook. returns a per-contact result. PAID action.",
       inputSchema: z.object({
         contactIds: z.array(z.string().uuid()).min(1).max(8),
       }),
       execute: async ({ contactIds }) => {
+        const gate = await costGate(
+          userId,
+          tier,
+          TOOL_COST_CENTS.bulk_enrich * contactIds.length,
+        );
+        if (gate) return gate;
         const results: {
           contactId: string;
           ok: boolean;
@@ -210,8 +326,13 @@ export function buildGenTools(userId: string) {
           needsManual?: boolean;
           error?: string;
         }[] = [];
+        let spentCents = 0;
         for (const contactId of contactIds) {
           const r = await enrichContactAction({ contactId });
+          if (r.ok) {
+            // log the REAL per-contact spend, not a flat estimate.
+            spentCents += r.run.totalCostCents ?? TOOL_COST_CENTS.bulk_enrich;
+          }
           results.push(
             r.ok
               ? {
@@ -223,6 +344,7 @@ export function buildGenTools(userId: string) {
               : { contactId, ok: false, error: r.error },
           );
         }
+        await recordUsage(userId, "bulk_enrich", spentCents, contactIds.length);
         return { results };
       },
     }),
@@ -236,13 +358,15 @@ export function buildGenTools(userId: string) {
 
     send_email: tool({
       description:
-        "send an email to a contact via resend. this is the ONLY irreversible action you have ... ALWAYS show the user the recipient + subject + body and get an explicit yes before calling it, one send at a time. SAFE DEFAULT: test mode redirects the send to the user's own inbox (subject tagged '[test -> the lead]') so the real lead is NOT emailed unless GEN_SEND_MODE=live. report back honestly which mode it went in + who it actually reached. logs the send into the unibox.",
+        "send an email to a contact via resend. this is the ONLY irreversible action you have ... ALWAYS show the user the recipient + subject + body and get an explicit yes before calling it, one send at a time. SAFE DEFAULT: test mode redirects the send to the user's own inbox (subject tagged '[test -> the lead]') so the real lead is NOT emailed unless GEN_SEND_MODE=live. report back honestly which mode it went in + who it actually reached. logs the send into the unibox. PAID action.",
       inputSchema: z.object({
         contactId: z.string().uuid(),
         subject: z.string().min(1),
         body: z.string().min(1),
       }),
       execute: async ({ contactId, subject, body }) => {
+        const gate = await costGate(userId, tier, TOOL_COST_CENTS.send_email);
+        if (gate) return gate;
         const c = await getContactEmail(contactId);
         if (!c?.email) {
           return {
@@ -258,6 +382,7 @@ export function buildGenTools(userId: string) {
             body,
             externalId: result.id,
           });
+          await recordUsage(userId, "send_email", TOOL_COST_CENTS.send_email);
         }
         return result;
       },
