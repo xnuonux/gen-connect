@@ -127,8 +127,26 @@ ${convo.summary}`
     stopWhen: stepCountIs(12),
   });
 
+  // drain the stream server-side so onFinish (which persists) is decoupled from
+  // the client connection: a reply that finished generating still gets saved if
+  // the client navigated away during the final flush. (a disconnect can still
+  // truncate an in-progress generation ... the runtime cancels it ... in which
+  // case only what actually streamed is captured, which is correct.) fire-and-
+  // forget on purpose.
+  void result.consumeStream({
+    onError: (error) => {
+      console.error("gen consumeStream error", error);
+    },
+  });
+
   return result.toUIMessageStreamResponse({
     originalMessages: messages,
+    // give the assistant turn a real unique id. without this the SDK ships the
+    // response message with an empty id, and persistMessage's upsert on
+    // (conversation_id, msg_id) with ignoreDuplicates then silently drops every
+    // assistant turn after the first (they all collide on ""). this was THE bug
+    // behind a reply vanishing on reload.
+    generateMessageId: () => crypto.randomUUID(),
     onFinish: async ({ messages: finalMessages }) => {
       const last = finalMessages[finalMessages.length - 1];
       if (last && last.role === "assistant") {

@@ -231,12 +231,19 @@ export async function persistMessage(
   const parts = toPortableParts(msg.parts ?? [], msg.role);
   if (!hasContent(parts)) return; // never store an empty / reasoning-only turn
 
+  // defense in depth: never persist with an empty msg_id. the upsert dedupes on
+  // (conversation_id, msg_id), so an empty id collides with the prior empty-id
+  // row and ignoreDuplicates SILENTLY drops the turn ... the bug that made replies
+  // vanish on reload. real ids are always supplied now (useChat for user turns,
+  // generateMessageId for assistant turns); this is the backstop.
+  const msgId = msg.id && msg.id.length > 0 ? msg.id : crypto.randomUUID();
+
   const supabase = await createClient();
   await supabase.from("gc_gen_messages").upsert(
     {
       user_id: userId,
       conversation_id: conversationId,
-      msg_id: msg.id,
+      msg_id: msgId,
       role: msg.role,
       parts,
     },
