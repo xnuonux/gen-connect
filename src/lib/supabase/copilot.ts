@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { type ContactStage } from "@/lib/types/contact";
+import { KANBAN_STAGES, type ContactStage } from "@/lib/types/contact";
 
 // the pipeline-control queries behind the Gen copilot's tools. all RLS-scoped
 // to the caller via the session client ... a contact id that is not theirs
@@ -139,37 +139,56 @@ export type PipelineSummary = {
 
 // a quick read of the whole pipeline: totals, the stage breakdown, how many
 // still lack a personalization hook, and the highest-scored contacts.
+//
+// every total here is a real count query (head: true), NOT a fetch-then-count.
+// postgREST caps every response at ~1000 rows, so counting fetched rows silently
+// maxes out at 1000 for any pipeline past that ... the "stuck at 1000" bug. let
+// the database do the counting, and only fetch the 5 rows we actually render.
 export async function pipelineSummary(): Promise<PipelineSummary> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("gc_contacts")
-    .select(
-      "id, name, title, stage, ai_score, enrichment_data, company:gc_companies(name)",
-    )
-    .limit(2000);
-  if (error) throw new Error(`could not summarize ... ${error.message}`);
 
-  const rows = (data ?? []) as unknown as (ContactRow & {
-    enrichment_data: unknown;
-  })[];
+  // a real count of contacts in a stage (or all, when stage is omitted).
+  const countStage = async (stage?: ContactStage): Promise<number> => {
+    let q = supabase
+      .from("gc_contacts")
+      .select("id", { count: "exact", head: true });
+    if (stage) q = q.eq("stage", stage);
+    const { count, error } = await q;
+    if (error) throw new Error(`could not summarize ... ${error.message}`);
+    return count ?? 0;
+  };
+
+  const [total, needsEnrichment, stageCounts, topRows] = await Promise.all([
+    countStage(),
+    // no personalization hook yet ... enrichment_data->>hook null or absent.
+    (async () => {
+      const { count, error } = await supabase
+        .from("gc_contacts")
+        .select("id", { count: "exact", head: true })
+        .is("enrichment_data->>hook", null);
+      if (error) throw new Error(`could not summarize ... ${error.message}`);
+      return count ?? 0;
+    })(),
+    Promise.all(
+      KANBAN_STAGES.map(async (stage) => ({
+        stage,
+        n: await countStage(stage),
+      })),
+    ),
+    // top scored: ordered + limited on the db side, never from a capped set.
+    supabase
+      .from("gc_contacts")
+      .select("id, name, title, stage, ai_score, company:gc_companies(name)")
+      .order("ai_score", { ascending: false })
+      .limit(5),
+  ]);
 
   const byStage: Record<string, number> = {};
-  let needsEnrichment = 0;
-  for (const r of rows) {
-    byStage[r.stage] = (byStage[r.stage] ?? 0) + 1;
-    const ed =
-      r.enrichment_data && typeof r.enrichment_data === "object"
-        ? (r.enrichment_data as Record<string, unknown>)
-        : {};
-    if (typeof ed.hook !== "string" || ed.hook.trim().length === 0) {
-      needsEnrichment += 1;
-    }
+  for (const { stage, n } of stageCounts) {
+    if (n > 0) byStage[stage] = n;
   }
 
-  const top = [...rows]
-    .sort((a, b) => (Number(b.ai_score) || 0) - (Number(a.ai_score) || 0))
-    .slice(0, 5)
-    .map(mapRow);
+  const top = ((topRows.data ?? []) as unknown as ContactRow[]).map(mapRow);
 
-  return { total: rows.length, byStage, needsEnrichment, top };
+  return { total, byStage, needsEnrichment, top };
 }

@@ -46,20 +46,41 @@ function mapContact(row: ContactRow): Contact {
 
 // every contact on the board, newest first. excludes the do_not_contact sink.
 // RLS scopes this to the signed-in user ... no user filter needed in the query.
+//
+// postgREST caps every response at ~1000 rows, so a single .limit(2000) select
+// silently truncated the board past 1000 (the oldest cards vanished + the column
+// count badges undercounted). page through with .range() until a short page so
+// the board gets the COMPLETE set. ordered by (created_at, id) for a stable page
+// boundary ... created_at ties (e.g. a bulk seed) would otherwise skip/dupe rows
+// across pages. the board renders all cards by design; past a few thousand it
+// should move to per-stage paging + virtualization.
+const PAGE = 1000;
+const MAX_PAGES = 50; // 50k safety bound; beyond this the board must virtualize
+
 export async function listContacts(): Promise<Contact[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("gc_contacts")
-    .select(CONTACT_SELECT)
-    .in("stage", [...KANBAN_STAGES])
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  const all: ContactRow[] = [];
 
-  if (error) {
-    throw new Error(`could not load contacts ... ${error.message}`);
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = page * PAGE;
+    const { data, error } = await supabase
+      .from("gc_contacts")
+      .select(CONTACT_SELECT)
+      .in("stage", [...KANBAN_STAGES])
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      throw new Error(`could not load contacts ... ${error.message}`);
+    }
+
+    const rows = (data ?? []) as unknown as ContactRow[];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
   }
 
-  return ((data ?? []) as unknown as ContactRow[]).map(mapContact);
+  return all.map(mapContact);
 }
 
 // move one contact to a new stage. RLS guarantees the row belongs to the
