@@ -3,9 +3,12 @@ import {
   streamText,
   stepCountIs,
   type UIMessage,
+  type TextStreamPart,
+  type ToolSet,
 } from "ai";
 import { models } from "@/lib/ai/anthropic";
 import { buildGenTools } from "@/lib/ai/gen-tools";
+import { scrubVoice } from "@/lib/ai/scrub";
 import { createClient } from "@/lib/supabase/server";
 import { getUserTier } from "@/lib/supabase/entitlements";
 import { checkGenRateLimit } from "@/lib/ratelimit/gen";
@@ -26,6 +29,24 @@ import {
 // running compaction summary fed back in as memory. streaming route per
 // AGENTS.md (route handlers only for webhooks + streaming).
 export const maxDuration = 120;
+
+// scrub gen's voice on the live stream: any em/en-dash the model emits becomes
+// the "..." pause marker AS it streams, so the user never sees one and the
+// persisted turn (assembled from this same stream) lands clean too. deepseek
+// doesn't reliably hold the no-em-dash line on its own, so this guarantees it
+// ... the same defense-in-depth as the drafting scrub, applied to the copilot's
+// own chat voice. only text deltas are touched; tool i/o + reasoning pass through.
+function voiceScrubTransform<T extends ToolSet>() {
+  return new TransformStream<TextStreamPart<T>, TextStreamPart<T>>({
+    transform(chunk, controller) {
+      if (chunk.type === "text-delta") {
+        controller.enqueue({ ...chunk, text: scrubVoice(chunk.text) });
+      } else {
+        controller.enqueue(chunk);
+      }
+    },
+  });
+}
 
 const SYSTEM = `you are gen, the operator inside gen connect. the user talks to you in plain language and you run their outreach: find leads, verify emails, load them into the pipeline, enrich, and draft.
 
@@ -151,6 +172,7 @@ ${convo.summary}`
     }),
     tools: buildGenTools(userId, tier),
     stopWhen: stepCountIs(12),
+    experimental_transform: voiceScrubTransform,
   });
 
   // drain the stream server-side so onFinish (which persists) is decoupled from
