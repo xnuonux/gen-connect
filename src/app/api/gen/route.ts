@@ -13,6 +13,8 @@ import {
   loadRecentMessages,
   persistMessage,
   maybeCompact,
+  toPortableParts,
+  prepareReplayMessages,
 } from "@/lib/supabase/gen-memory";
 
 // the Gen copilot agent loop. the planner model plans, the tools execute,
@@ -74,17 +76,30 @@ export async function POST(req: Request) {
     (conversationId ? await getConversation(conversationId) : null) ??
     (await getOrCreateConversation(userId));
 
+  // normalize the incoming turn to the provider-portable subset before it
+  // touches the model or the db. recent turns come back already normalized from
+  // loadRecentMessages, so the whole context is provider-neutral ... identical
+  // for deepseek + anthropic ... and a client can't smuggle in a provider-tagged
+  // or malformed part.
+  const incoming: UIMessage = {
+    ...message,
+    parts: toPortableParts(
+      message.parts as unknown[],
+      "user",
+    ) as UIMessage["parts"],
+  };
+
   // the live context = recent persisted turns + the new message. older turns
   // live in convo.summary (folded in below), not the message list.
   const recent = (await loadRecentMessages(convo.id)) as unknown as UIMessage[];
-  const messages: UIMessage[] = [...recent, message];
+  const messages: UIMessage[] = [...recent, incoming];
 
   // persist the user turn up front (idempotent), so it survives even if the
   // stream errors mid-flight.
   await persistMessage(userId, convo.id, {
-    id: message.id,
+    id: incoming.id,
     role: "user",
-    parts: message.parts as unknown[],
+    parts: incoming.parts as unknown[],
   });
 
   const system = convo.summary
@@ -101,7 +116,13 @@ ${convo.summary}`
   const result = streamText({
     model: models.planner,
     system,
-    messages: await convertToModelMessages(messages),
+    // prepareReplayMessages keeps the sequence valid for BOTH providers:
+    // coalesces an orphaned trailing user turn (interrupted stream) so we never
+    // replay user,user, and trims any leading non-user turn left by compaction.
+    // ignoreIncompleteToolCalls is the backstop against orphan tool-calls.
+    messages: await convertToModelMessages(prepareReplayMessages(messages), {
+      ignoreIncompleteToolCalls: true,
+    }),
     tools: buildGenTools(userId),
     stopWhen: stepCountIs(12),
   });

@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, type UIMessage } from "ai";
 import { createClient } from "@/lib/supabase/server";
 import { models } from "@/lib/ai/anthropic";
 
@@ -15,6 +15,135 @@ export type StoredMessage = {
 
 const KEEP_RECENT = 24; // messages kept live after a compaction
 const COMPACT_AT = 40; // compact once the thread passes this
+
+const TERMINAL_TOOL_STATES = new Set(["output-available", "output-error"]);
+
+// the provider-portable subset of a message's parts. the forever-thread gets
+// replayed to whichever model is live ... deepseek now, anthropic when its key
+// is funded, a fallback later ... so the stored + replayed context has to be
+// identical for both. we keep only what convertToModelMessages turns into
+// provider-neutral model content, and drop the cross-provider hazards:
+//   - reasoning parts: deepseek emits them bare (no signature), anthropic then
+//     drops signature-less thinking with a warning, and a leading signature-less
+//     thinking block beside a tool_use can hard-400 anthropic. non-load-bearing
+//     for the agent loop (compaction already drops reasoning), so strip it.
+//   - any providerMetadata / providerOptions: namespaced to the producing
+//     provider, alien (or rejected) by the other. we rebuild clean parts.
+//   - non-terminal tool parts (input-streaming / input-available): emit an
+//     orphan tool-call with no paired result ... invalid for BOTH providers.
+//   - provider-executed tool parts + source / file / data parts: provider-
+//     specific, or never reach the model anyway.
+//   - step-start boundaries: dropping them collapses a turn into one block, so
+//     a text-step-then-tool-step never replays as two consecutive assistant
+//     messages (a cross-provider validation risk). verified clean against the
+//     real convertToModelMessages.
+// pure + idempotent: feed it portable parts and you get the same parts back.
+// role lets us drop tool parts off a user turn (only assistants make tool calls
+// ... a tool part on a user turn is malformed or client-smuggled).
+export function toPortableParts(
+  parts: unknown[],
+  role?: "user" | "assistant",
+): unknown[] {
+  if (!Array.isArray(parts)) return [];
+  const out: unknown[] = [];
+  for (const p of parts) {
+    const part = p as {
+      type?: string;
+      text?: string;
+      state?: string;
+      toolName?: string;
+      toolCallId?: string;
+      input?: unknown;
+      rawInput?: unknown;
+      output?: unknown;
+      errorText?: string;
+    };
+    const type = part?.type;
+    if (typeof type !== "string") continue;
+
+    if (type === "text") {
+      if (typeof part.text === "string" && part.text.length > 0) {
+        out.push({ type: "text", text: part.text });
+      }
+      continue;
+    }
+    const isStaticTool = type.startsWith("tool-");
+    const isDynamicTool = type === "dynamic-tool";
+    if (isStaticTool || isDynamicTool) {
+      // tool parts are only valid on assistant turns ... drop them off a user
+      // turn (dropped at the model layer anyway, this keeps the row role-correct).
+      if (role === "user") continue;
+      // only terminal client-tool calls round-trip cleanly to both providers.
+      if (!part.state || !TERMINAL_TOOL_STATES.has(part.state)) continue;
+      const clean: Record<string, unknown> = {
+        type,
+        toolCallId: part.toolCallId,
+        state: part.state,
+        // a tool-input-error stashes the model's args in rawInput (input is
+        // undefined); recover them so we never replay an undefined-input
+        // tool-call ... both providers reject that.
+        input: part.input ?? part.rawInput ?? {},
+      };
+      if (isDynamicTool && part.toolName) clean.toolName = part.toolName;
+      if (part.state === "output-error") {
+        clean.errorText = part.errorText ?? "tool failed";
+      } else {
+        clean.output = part.output;
+      }
+      out.push(clean);
+      continue;
+    }
+    // reasoning, step-start, source-*, file, data-*, provider-executed,
+    // unknown: drop.
+  }
+  return out;
+}
+
+// a message carries no model-relevant content once normalized if it has no text
+// and no tool parts (e.g. an interrupted turn that only ever emitted reasoning).
+// we neither store nor replay these ... empty turns are noise.
+function hasContent(parts: unknown[]): boolean {
+  return parts.some((p) => {
+    const t = (p as { type?: string })?.type;
+    return (
+      t === "text" || t === "dynamic-tool" || (typeof t === "string" && t.startsWith("tool-"))
+    );
+  });
+}
+
+// shape the replay list so it is structurally valid for BOTH providers, not just
+// deepseek (which is lenient). nothing here is provider-specific ... it keeps the
+// sequence legal for either:
+//   - coalesce adjacent same-role turns. a turn interrupted before its assistant
+//     reply lands leaves an orphaned trailing user turn (the user turn is
+//     persisted up front), so the next user turn would sit right beside it.
+//     providers reject two user (or two assistant) messages back to back. we
+//     merge them, preserving the orphan's content instead of dropping it.
+//   - ensure the first turn is a user turn. compaction can leave the recent
+//     window starting on an assistant reply, which anthropic rejects (the first
+//     message must be user). drop leading non-user turns.
+export function prepareReplayMessages(messages: UIMessage[]): UIMessage[] {
+  const coalesced: UIMessage[] = [];
+  for (const m of messages) {
+    const prev = coalesced[coalesced.length - 1];
+    if (prev && prev.role === m.role) {
+      prev.parts = [
+        ...(prev.parts as unknown[]),
+        ...(m.parts as unknown[]),
+      ] as UIMessage["parts"];
+    } else {
+      coalesced.push({
+        ...m,
+        parts: [...(m.parts as unknown[])] as UIMessage["parts"],
+      });
+    }
+  }
+  let start = 0;
+  while (start < coalesced.length && coalesced[start]?.role !== "user") {
+    start++;
+  }
+  return coalesced.slice(start);
+}
 
 // the user's single active conversation, created on first use.
 export async function getOrCreateConversation(
@@ -79,11 +208,16 @@ export async function loadRecentMessages(
     role: "user" | "assistant";
     parts: unknown[];
   }[];
-  return rows.reverse().map((r) => ({
-    id: r.msg_id,
-    role: r.role,
-    parts: Array.isArray(r.parts) ? r.parts : [],
-  }));
+  return rows
+    .reverse()
+    .map((r) => ({
+      id: r.msg_id,
+      role: r.role,
+      // normalize on the way out so every replay + hydration is provider-
+      // portable, even for rows written before this landed.
+      parts: toPortableParts(Array.isArray(r.parts) ? r.parts : [], r.role),
+    }))
+    .filter((m) => hasContent(m.parts));
 }
 
 // persist one message, idempotent on (conversation_id, msg_id).
@@ -92,6 +226,11 @@ export async function persistMessage(
   conversationId: string,
   msg: { id: string; role: "user" | "assistant"; parts: unknown[] },
 ): Promise<void> {
+  // store the provider-portable subset so the thread is provider-neutral by
+  // construction ... no reasoning blocks or provider metadata to diverge on.
+  const parts = toPortableParts(msg.parts ?? [], msg.role);
+  if (!hasContent(parts)) return; // never store an empty / reasoning-only turn
+
   const supabase = await createClient();
   await supabase.from("gc_gen_messages").upsert(
     {
@@ -99,7 +238,7 @@ export async function persistMessage(
       conversation_id: conversationId,
       msg_id: msg.id,
       role: msg.role,
-      parts: msg.parts ?? [],
+      parts,
     },
     { onConflict: "conversation_id,msg_id", ignoreDuplicates: true },
   );
