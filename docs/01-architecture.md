@@ -207,7 +207,12 @@ the conversational control surface (`/gen`). an agentic loop, not a form.
   system prompt holds the dom voice; tools return clean voice-checked errors,
   never raw provider/pg text.
 
-deferred before this goes multi-user (tracked): a per-user rate limit +
-per-user/day cost ceiling on `/api/gen` (upstash + usage_events), wiring
-`src/middleware.ts` (the edge auth gate was scaffolded but never mounted), and
-removing the dev-only `/api/dev-login` backdoor.
+hardened for multi-user since: the per-user rate limit (upstash, fails open when
+unconfigured so local dev never blocks) and the per-user/day cost ceiling on
+`/api/gen` ... the ceiling is now a db-atomic reserve (`gc_reserve_usage`,
+migration v0_1_6), folding read + ceiling-check + ledger write into one
+per-user-locked step so two concurrent turns can't race past the cap (the reserve
+IS the ledger write now, so the tools no longer log spend after the fact).
+
+still deferred before launch (tracked): wiring `src/middleware.ts` (the edge auth
+gate over `/gen` + `/draft`), and removing the dev-only `/api/dev-login` backdoor.
