@@ -1,31 +1,61 @@
 import { createClient } from "@/lib/supabase/server";
 
-// the cost ledger behind the daily spend ceiling. one row per money-costing
-// tool call, summed server-side so the ceiling can't be gamed client-side.
+// the cost ledger behind the daily spend ceiling. one row per money-costing tool
+// call, summed server-side so the ceiling can't be gamed client-side. the spend is
+// now RESERVED up front (atomically) rather than logged after the fact ... see
+// reserveUsage + the gc_reserve_usage rpc (migration v0_1_6).
 
-// append one cost event. NEVER throws ... a logging failure must not break a
-// tool that already ran + spent the money (losing a ledger row is the lesser
-// evil than a 500 after the spend already happened).
-export async function recordUsage(
-  userId: string,
+export type ReserveResult = {
+  reserved: boolean;
+  spentCents: number;
+  reason?: string;
+};
+
+// atomically reserve projected spend against today's ceiling. ONE db call does the
+// read + ceiling check + ledger write under a per-user lock, so two concurrent
+// turns can't both slip past the cap (the race the old check-then-log left open).
+// the reserve IS the ledger write ... a reserved tool must NOT also log the spend.
+//
+// FAILS OPEN: on an rpc error (infra hiccup) we allow the spend, matching the old
+// read's posture ... a transient db blip shouldn't take the paid copilot down (the
+// tier gate already did the hard gating + the rate limit caps bursts). a clean
+// `reserved: false` from the function is a REAL ceiling breach and is honored.
+export async function reserveUsage(
   kind: string,
   costCents: number,
-  units = 1,
-): Promise<void> {
+  units: number,
+  ceilingCents: number,
+): Promise<ReserveResult> {
   try {
     const supabase = await createClient();
-    await supabase.from("gc_usage_events").insert({
-      user_id: userId,
-      kind,
-      units,
-      cost_cents: Math.max(0, Math.round(costCents)),
+    const { data, error } = await supabase.rpc("gc_reserve_usage", {
+      p_kind: kind,
+      p_units: Math.max(0, Math.round(units)),
+      p_cost_cents: Math.max(0, Math.round(costCents)),
+      p_ceiling_cents: Math.max(0, Math.round(ceilingCents)),
     });
+    if (error || data == null) {
+      return { reserved: true, spentCents: 0, reason: "reserve_unavailable" };
+    }
+    const row = data as {
+      reserved?: boolean;
+      spent_cents?: number;
+      reason?: string;
+    };
+    return {
+      reserved: row.reserved === true,
+      spentCents: Number(row.spent_cents) || 0,
+      reason: row.reason,
+    };
   } catch {
-    // swallow ... the action succeeded; the ledger is best-effort.
+    // never let a ledger hiccup wall a paid user ... the harder gates still hold.
+    return { reserved: true, spentCents: 0, reason: "reserve_unavailable" };
   }
 }
 
-// today's spend (UTC day) in cents. summed over the day's rows (small set).
+// today's spend (UTC day) in cents, read-only ... for a spend display or audit.
+// the ceiling itself no longer reads through this (the reserve checks atomically);
+// kept as the read side of the ledger + the one place the UTC-day boundary lives.
 export async function todaysSpendCents(userId: string): Promise<number> {
   try {
     const supabase = await createClient();
@@ -39,8 +69,6 @@ export async function todaysSpendCents(userId: string): Promise<number> {
       0,
     );
   } catch {
-    // on a read failure, report 0 ... never block a paid user because the
-    // ledger read hiccuped (the tier gate already did the hard gating).
     return 0;
   }
 }

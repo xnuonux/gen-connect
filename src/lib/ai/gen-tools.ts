@@ -16,8 +16,7 @@ import { generateDraftAction } from "@/app/actions/drafts";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import { type ContactStage } from "@/lib/types/contact";
 import { type Tier } from "@/lib/supabase/entitlements";
-import { costGate, TOOL_COST_CENTS } from "@/lib/ai/gen-guard";
-import { recordUsage } from "@/lib/supabase/usage";
+import { reserveCost, TOOL_COST_CENTS } from "@/lib/ai/gen-guard";
 
 // the Gen copilot's tool belt. each wraps a capability shipped this build:
 // find (hunter), verify (millionverifier), load + import (rls insert), enrich
@@ -25,11 +24,13 @@ import { recordUsage } from "@/lib/supabase/usage";
 // call from the user's brief. bound to the signed-in user so every write is
 // theirs.
 //
-// the money-costing tools call costGate(userId, tier, projectedCents) FIRST,
-// passing the most this call could spend ... free users get a clean voice-checked
-// refusal, paid users are refused if this call would breach today's ceiling, and
-// on a pass the ACTUAL spend (scaled by fan-out) is logged via recordUsage(). the
-// zero-cost organize/import tools never gate. load_contacts is the terminal step
+// the money-costing tools call reserveCost(tier, kind, projectedCents, units)
+// FIRST, passing the most this call could spend ... free users get a clean
+// voice-checked refusal, paid users are refused if this call would breach today's
+// ceiling, and on a pass the projected (upper-bound) spend is ATOMICALLY reserved +
+// logged in one db step (so concurrent turns can't both slip past the cap, and the
+// tool does NOT log again). the zero-cost organize/import tools never gate.
+// load_contacts is the terminal step
 // of the paid find->verify->load flow, so it is paid-gated too (free users bring
 // their own list via import_leads, which stamps truthful import provenance).
 export function buildGenTools(userId: string, tier: Tier) {
@@ -70,10 +71,11 @@ export function buildGenTools(userId: string, tier: Tier) {
         // hunter bills per domain-search request; cost scales with the domains
         // actually queried (capped at 12), so the ledger tracks real fan-out.
         const domainsQueried = Math.min(domains.length, 12);
-        const gate = await costGate(
-          userId,
+        const gate = await reserveCost(
           tier,
+          "find_leads",
           TOOL_COST_CENTS.find_leads * domainsQueried,
+          domainsQueried,
         );
         if (gate) return gate;
         const { leads, notes } = await findLeadsByDomains({
@@ -81,12 +83,6 @@ export function buildGenTools(userId: string, tier: Tier) {
           titleIncludes,
           perDomain,
         });
-        await recordUsage(
-          userId,
-          "find_leads",
-          TOOL_COST_CENTS.find_leads * domainsQueried,
-          domainsQueried,
-        );
         return {
           count: leads.length,
           notes,
@@ -108,19 +104,14 @@ export function buildGenTools(userId: string, tier: Tier) {
       inputSchema: z.object({ emails: z.array(z.string()).min(1).max(60) }),
       execute: async ({ emails }) => {
         // billed per email ... cost scales with the batch size.
-        const gate = await costGate(
-          userId,
+        const gate = await reserveCost(
           tier,
-          TOOL_COST_CENTS.verify_emails * emails.length,
-        );
-        if (gate) return gate;
-        const results = await verifyEmails(emails);
-        await recordUsage(
-          userId,
           "verify_emails",
           TOOL_COST_CENTS.verify_emails * emails.length,
           emails.length,
         );
+        if (gate) return gate;
+        const results = await verifyEmails(emails);
         return { results };
       },
     }),
@@ -203,19 +194,14 @@ export function buildGenTools(userId: string, tier: Tier) {
         "run path-A enrichment on one contact (perplexity / apollo / crawl4ai if configured) ... fills the personalization hook the drafter reads. returns what was found + needs_manual. PAID action.",
       inputSchema: z.object({ contactId: z.string().uuid() }),
       execute: async ({ contactId }) => {
-        const gate = await costGate(
-          userId,
+        const gate = await reserveCost(
           tier,
+          "enrich_contact",
           TOOL_COST_CENTS.enrich_contact,
         );
         if (gate) return gate;
         const r = await enrichContactAction({ contactId });
         if (!r.ok) return { ok: false, error: r.error };
-        await recordUsage(
-          userId,
-          "enrich_contact",
-          r.run.totalCostCents ?? TOOL_COST_CENTS.enrich_contact,
-        );
         return {
           ok: true,
           hook: r.run.fields.hook ?? null,
@@ -230,15 +216,14 @@ export function buildGenTools(userId: string, tier: Tier) {
         "generate the 5-angle cold draft for one contact (fed their voice profile), self-judge all five, pick the winner. returns the winning angle (subject + body) + the five with scores. score is the judge's rating out of 10 (voice_match weighted heaviest) ... present it as 'X/10'. PAID action.",
       inputSchema: z.object({ contactId: z.string().uuid() }),
       execute: async ({ contactId }) => {
-        const gate = await costGate(
-          userId,
+        const gate = await reserveCost(
           tier,
+          "draft_angles",
           TOOL_COST_CENTS.draft_angles,
         );
         if (gate) return gate;
         const r = await generateDraftAction({ contactId });
         if (!r.ok) return { ok: false, error: r.error };
-        await recordUsage(userId, "draft_angles", TOOL_COST_CENTS.draft_angles);
         // weighted_total maxes at 55 (voice_match counts 1.5x) ... map to a
         // clean 0-10 so the copilot labels the denominator honestly.
         const toTen = (w: number) => Math.round((w / 5.5) * 10) / 10;
@@ -313,10 +298,11 @@ export function buildGenTools(userId: string, tier: Tier) {
         contactIds: z.array(z.string().uuid()).min(1).max(8),
       }),
       execute: async ({ contactIds }) => {
-        const gate = await costGate(
-          userId,
+        const gate = await reserveCost(
           tier,
+          "bulk_enrich",
           TOOL_COST_CENTS.bulk_enrich * contactIds.length,
+          contactIds.length,
         );
         if (gate) return gate;
         const results: {
@@ -326,13 +312,8 @@ export function buildGenTools(userId: string, tier: Tier) {
           needsManual?: boolean;
           error?: string;
         }[] = [];
-        let spentCents = 0;
         for (const contactId of contactIds) {
           const r = await enrichContactAction({ contactId });
-          if (r.ok) {
-            // log the REAL per-contact spend, not a flat estimate.
-            spentCents += r.run.totalCostCents ?? TOOL_COST_CENTS.bulk_enrich;
-          }
           results.push(
             r.ok
               ? {
@@ -344,7 +325,6 @@ export function buildGenTools(userId: string, tier: Tier) {
               : { contactId, ok: false, error: r.error },
           );
         }
-        await recordUsage(userId, "bulk_enrich", spentCents, contactIds.length);
         return { results };
       },
     }),
@@ -365,7 +345,7 @@ export function buildGenTools(userId: string, tier: Tier) {
         body: z.string().min(1),
       }),
       execute: async ({ contactId, subject, body }) => {
-        const gate = await costGate(userId, tier, TOOL_COST_CENTS.send_email);
+        const gate = await reserveCost(tier, "send_email", TOOL_COST_CENTS.send_email);
         if (gate) return gate;
         const c = await getContactEmail(contactId);
         if (!c?.email) {
@@ -382,7 +362,6 @@ export function buildGenTools(userId: string, tier: Tier) {
             body,
             externalId: result.id,
           });
-          await recordUsage(userId, "send_email", TOOL_COST_CENTS.send_email);
         }
         return result;
       },
