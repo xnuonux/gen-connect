@@ -12,6 +12,7 @@ import {
 import { sendDraftEmail } from "@/lib/email/send";
 import { logOutboundEmail } from "@/lib/supabase/unibox";
 import { enrichContactAction } from "@/app/actions/enrichment";
+import { resolveFootprintAction } from "@/app/actions/footprint";
 import { generateDraftAction } from "@/app/actions/drafts";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import { type ContactStage } from "@/lib/types/contact";
@@ -207,6 +208,31 @@ export function buildGenTools(userId: string, tier: Tier) {
           hook: r.run.fields.hook ?? null,
           needsManual: r.run.needsManual,
           costCents: r.run.totalCostCents,
+        };
+      },
+    }),
+
+    resolve_footprint: tool({
+      description:
+        "find a contact's public internet presence ... resolve their email into the social + web profiles they have PUBLICLY published about themselves (gravatar verified accounts + public github: x, linkedin, instagram, mastodon, bluesky, personal site, plus name/bio/role/location). FREE ... reads only official, open, public apis, no scraping and no cost. saves the link graph to the contact and returns it. reach for this when the user wants someone's socials or whole presence, not just an email. needs the contact to have an email on file.",
+      inputSchema: z.object({ contactId: z.string().uuid() }),
+      execute: async ({ contactId }) => {
+        const r = await resolveFootprintAction({ contactId });
+        if (!r.ok) return { ok: false, error: r.error };
+        const f = r.footprint;
+        return {
+          ok: true,
+          name: f.name ?? null,
+          jobTitle: f.jobTitle ?? null,
+          company: f.company ?? null,
+          location: f.location ?? null,
+          website: f.website ?? null,
+          links: f.links.map((l) => ({
+            platform: l.platform,
+            url: l.url,
+            verified: l.verified,
+          })),
+          sources: f.sources,
         };
       },
     }),
