@@ -18,6 +18,15 @@ export type FootprintResult =
 
 const Input = z.object({ contactId: z.string().uuid() });
 
+// the email's domain ... fed to the resolver so it can crawl the company/personal
+// homepage for socials when there's no gravatar/github. null for a bare address.
+function emailDomain(email: string): string | undefined {
+  const at = email.lastIndexOf("@");
+  if (at < 0) return undefined;
+  const d = email.slice(at + 1).trim().toLowerCase();
+  return d.includes(".") ? d : undefined;
+}
+
 // resolve one contact's public footprint on demand: load the contact, resolve
 // from gravatar + github (free, public, official apis ... no cost gate), and
 // store the link graph back on the contact. only the contact id is trusted from
@@ -73,6 +82,7 @@ export async function resolveFootprintAction(
     const footprint = await resolveFootprint({
       email: c.email,
       githubUsername: priorGithub ?? null,
+      domain: emailDomain(c.email),
     });
 
     if (footprint.sources.length === 0) {

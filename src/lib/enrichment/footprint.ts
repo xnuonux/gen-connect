@@ -18,7 +18,7 @@ export type FootprintLink = {
   handle?: string;
   // true when the person verified this account on their own gravatar profile.
   verified: boolean;
-  source: "gravatar" | "github";
+  source: "gravatar" | "github" | "site";
 };
 
 export type Footprint = {
@@ -38,6 +38,10 @@ export type FootprintInput = {
   email?: string | null;
   // an explicit github handle short-circuits discovery (e.g. from a prior run).
   githubUsername?: string | null;
+  // the email's domain (or a known company domain). when there's no personal
+  // site, we crawl this homepage for the socials a typical business lead lists
+  // there ... the lever that un-sparses non-dev contacts. freemail is skipped.
+  domain?: string | null;
 };
 
 function str(v: unknown): string | undefined {
@@ -220,6 +224,134 @@ async function fromGitHub(
   };
 }
 
+// freemail domains carry no site to crawl ... skip them so we never fetch
+// gmail.com et al expecting a personal/company homepage.
+const FREEMAIL = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "ymail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "proton.me",
+  "protonmail.com",
+  "pm.me",
+  "gmx.com",
+  "mail.com",
+  "yandex.com",
+  "zoho.com",
+  "fastmail.com",
+  "hey.com",
+  "duck.com",
+]);
+
+// known social hosts -> canonical platform. federated/self-hosted instances
+// (mastodon) are best-effort; the host-match covers the common cases.
+const SOCIAL_HOST_PLATFORM: Record<string, string> = {
+  "x.com": "x",
+  "twitter.com": "x",
+  "linkedin.com": "linkedin",
+  "github.com": "github",
+  "instagram.com": "instagram",
+  "youtube.com": "youtube",
+  "facebook.com": "facebook",
+  "fb.com": "facebook",
+  "tiktok.com": "tiktok",
+  "bsky.app": "bluesky",
+  "threads.net": "threads",
+  "mastodon.social": "mastodon",
+  "youtu.be": "youtube",
+};
+
+// share / intent / dialog links are buttons, not profiles ... drop them so the
+// graph doesn't fill with "tweet this" junk.
+const SHARE_RE =
+  /(?:\/intent\/|\/share(?:r)?(?:[/?]|$)|sharearticle|\/dialog\/|[?&](?:text|url|via)=)/i;
+
+function socialPlatform(host: string): string | undefined {
+  for (const key of Object.keys(SOCIAL_HOST_PLATFORM)) {
+    if (host === key || host.endsWith("." + key)) return SOCIAL_HOST_PLATFORM[key];
+  }
+  return undefined;
+}
+
+// crawl ONE public homepage (their own site, or their company domain) and pull
+// the social profiles + bio they list there. a single GET of a public,
+// self-published page ... the compliant "view their site" move, not scraping a
+// walled garden. degrades to null on any hiccup (non-html, timeout, no links).
+async function fromWebsite(
+  rawUrl: string,
+): Promise<{ profile: Partial<Footprint>; links: FootprintLink[] } | null> {
+  const base = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+  let html = "";
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(base, {
+      headers: {
+        "user-agent": "gen-connect-footprint",
+        accept: "text/html,application/xhtml+xml",
+      },
+      signal: ctrl.signal,
+      redirect: "follow",
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    if (!(res.headers.get("content-type") ?? "").includes("text/html")) {
+      return null;
+    }
+    html = (await res.text()).slice(0, 600_000);
+  } catch {
+    return null;
+  }
+
+  const links: FootprintLink[] = [];
+  const seen = new Set<string>();
+  const hrefRe = /href=["']([^"'\s]+)["']/gi;
+  let m: RegExpExecArray | null;
+  let scanned = 0;
+  while ((m = hrefRe.exec(html)) !== null && scanned < 400 && links.length < 25) {
+    scanned += 1;
+    const href = m[1];
+    if (!href || !/^https?:\/\//i.test(href) || SHARE_RE.test(href)) continue;
+    let u: URL;
+    try {
+      u = new URL(href);
+    } catch {
+      continue;
+    }
+    if (u.pathname.length <= 1) continue; // bare domain, not a profile
+    const platform = socialPlatform(u.hostname.replace(/^www\./, ""));
+    if (!platform) continue;
+    const clean = `${u.origin}${u.pathname}`.replace(/\/+$/, "");
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push({ platform, url: clean, verified: false, source: "site" });
+  }
+
+  const desc =
+    str(
+      html.match(
+        /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i,
+      )?.[1],
+    ) ??
+    str(
+      html.match(
+        /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i,
+      )?.[1],
+    );
+
+  if (links.length === 0 && !desc) return null;
+  return { profile: { bio: desc, website: base }, links };
+}
+
 function githubHandleFromLinks(links: FootprintLink[]): string | undefined {
   const gh = links.find((l) => l.platform === "github");
   if (!gh) return undefined;
@@ -295,6 +427,23 @@ export async function resolveFootprint(
       profile = mergeProfile(profile, gh.profile);
       links.push(...gh.links);
       sources.push("github");
+    }
+  }
+
+  // crawl a homepage for the socials they list there: prefer their OWN site
+  // (the github blog, unambiguously theirs), else fall back to the email/company
+  // domain (skipping freemail). this is the lever that un-sparses a typical
+  // business lead with no gravatar/github.
+  const domain = str(input.domain ?? undefined)?.toLowerCase();
+  const siteCandidate =
+    str(profile.website ?? undefined) ??
+    (domain && !FREEMAIL.has(domain) ? domain : undefined);
+  if (siteCandidate) {
+    const site = await fromWebsite(siteCandidate);
+    if (site) {
+      profile = mergeProfile(profile, site.profile);
+      links.push(...site.links);
+      sources.push("website");
     }
   }
 
