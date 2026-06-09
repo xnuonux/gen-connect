@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { KanbanColumn } from "./KanbanColumn";
 import { ContactCard } from "@/components/shared/ContactCard";
+import { ContactDrawer } from "@/components/shared/ContactDrawer";
 import { fetchContacts, moveContactToStage } from "@/app/actions/contacts";
 import {
   isKanbanStage,
@@ -169,6 +170,10 @@ export function PipelineKanban({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* the side drawer ... opens on card select, lazy-loads the full contact
+          + the resolved presence graph. close clears the selection. */}
+      <ContactDrawer contactId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
   );
 }

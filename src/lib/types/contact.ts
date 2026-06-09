@@ -27,7 +27,7 @@ export type Company = {
 };
 
 // the shape the pipeline reads ... a deliberate subset of the contacts table.
-// the side panel and table view widen this in later chunks.
+// the table view widens this in a later chunk.
 export type Contact = {
   id: string;
   name: string | null;
@@ -39,4 +39,48 @@ export type Contact = {
   company: Company | null;
   lastActionAt: string | null;
   createdAt: string;
+};
+
+// a resolved public-presence link, presentational shape (structurally a
+// superset-compatible view of lib/enrichment/footprint.FootprintLink, kept here
+// so client components never import the server-only resolver module).
+export type ContactPresenceLink = {
+  platform: string;
+  url: string;
+  handle?: string;
+  verified: boolean;
+  source?: string;
+};
+
+export type ContactPresence = {
+  name?: string;
+  bio?: string;
+  avatarUrl?: string;
+  location?: string;
+  jobTitle?: string;
+  company?: string;
+  website?: string;
+  links: ContactPresenceLink[];
+  sources: string[];
+};
+
+// the full contact the side drawer reads ... lazy-loaded per contact on open
+// (never folded into the board query, which stays lean across 1000+ cards).
+export type ContactDetail = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  title: string | null;
+  stage: ContactStage;
+  aiScore: number;
+  warmthScore: number;
+  company: Company | null;
+  linkedinUrl: string | null;
+  location: string | null;
+  // the personalization hook the 5-angle drafter opens with.
+  hook: string | null;
+  // the public-footprint person-graph, null until resolve_footprint runs.
+  presence: ContactPresence | null;
+  createdAt: string;
+  lastActionAt: string | null;
 };

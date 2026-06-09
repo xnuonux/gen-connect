@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import {
   KANBAN_STAGES,
   type Contact,
+  type ContactDetail,
+  type ContactPresence,
   type ContactStage,
 } from "@/lib/types/contact";
 
@@ -81,6 +83,91 @@ export async function listContacts(): Promise<Contact[]> {
   }
 
   return all.map(mapContact);
+}
+
+function strOrNull(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+// parse the enrichment_data.footprint jsonb into the presentational shape.
+// a footprint with no links AND no sources is treated as absent (null).
+function parsePresence(v: unknown): ContactPresence | null {
+  if (!v || typeof v !== "object") return null;
+  const f = v as Record<string, unknown>;
+  const links = (Array.isArray(f.links) ? f.links : [])
+    .filter((l): l is Record<string, unknown> => !!l && typeof l === "object")
+    .map((l) => ({
+      platform: typeof l.platform === "string" ? l.platform : "link",
+      url: typeof l.url === "string" ? l.url : "",
+      handle: typeof l.handle === "string" ? l.handle : undefined,
+      verified: l.verified === true,
+      source: typeof l.source === "string" ? l.source : undefined,
+    }))
+    .filter((l) => l.url.length > 0);
+  const sources = (Array.isArray(f.sources) ? f.sources : []).filter(
+    (s): s is string => typeof s === "string",
+  );
+  if (links.length === 0 && sources.length === 0) return null;
+  const s = (k: string): string | undefined =>
+    typeof f[k] === "string" ? (f[k] as string) : undefined;
+  return {
+    name: s("name"),
+    bio: s("bio"),
+    avatarUrl: s("avatarUrl"),
+    location: s("location"),
+    jobTitle: s("jobTitle"),
+    company: s("company"),
+    website: s("website"),
+    links,
+    sources,
+  };
+}
+
+// the full contact for the side drawer. lazy-loaded per contact on open, so the
+// board query stays lean. RLS scopes it to the caller.
+export async function getContactDetail(
+  contactId: string,
+): Promise<ContactDetail | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_contacts")
+    .select(
+      "id, name, email, title, stage, ai_score, warmth_score, linkedin_url, last_action_at, created_at, enrichment_data, company:gc_companies(name, domain)",
+    )
+    .eq("id", contactId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`could not load contact ... ${error.message}`);
+  }
+  if (!data) return null;
+
+  const row = data as unknown as ContactRow & {
+    linkedin_url: string | null;
+    enrichment_data: Record<string, unknown> | null;
+  };
+  const ed =
+    row.enrichment_data && typeof row.enrichment_data === "object"
+      ? row.enrichment_data
+      : {};
+  const presence = parsePresence(ed.footprint);
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    title: row.title,
+    stage: row.stage as ContactStage,
+    aiScore: toNumber(row.ai_score),
+    warmthScore: toNumber(row.warmth_score),
+    company: row.company,
+    linkedinUrl: row.linkedin_url ?? strOrNull(ed.linkedin_url),
+    location: strOrNull(ed.location) ?? presence?.location ?? null,
+    hook: strOrNull(ed.hook),
+    presence,
+    createdAt: row.created_at,
+    lastActionAt: row.last_action_at,
+  };
 }
 
 // move one contact to a new stage. RLS guarantees the row belongs to the

@@ -2,8 +2,16 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { listContacts, updateContactStage } from "@/lib/supabase/contacts";
-import { KANBAN_STAGES, type Contact } from "@/lib/types/contact";
+import {
+  getContactDetail,
+  listContacts,
+  updateContactStage,
+} from "@/lib/supabase/contacts";
+import {
+  KANBAN_STAGES,
+  type Contact,
+  type ContactDetail,
+} from "@/lib/types/contact";
 
 const moveSchema = z.object({
   contactId: z.string().uuid(),
@@ -18,6 +26,19 @@ export type MoveContactResult = { ok: true } | { ok: false; error: string };
 // every contacts query stays in src/lib/supabase ... never inlined client-side.
 export async function fetchContacts(): Promise<Contact[]> {
   return listContacts();
+}
+
+const detailSchema = z.object({ contactId: z.string().uuid() });
+
+// the side drawer's lazy load. returns the full contact (incl the resolved
+// presence graph) for one id, or null. RLS scopes it ... an id that isn't the
+// caller's simply returns null.
+export async function fetchContactDetail(
+  contactId: string,
+): Promise<ContactDetail | null> {
+  const parsed = detailSchema.safeParse({ contactId });
+  if (!parsed.success) return null;
+  return getContactDetail(parsed.data.contactId);
 }
 
 // move a contact to a new pipeline stage. the kanban applies the move
