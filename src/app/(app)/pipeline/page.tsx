@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { CsvImportDialog } from "@/components/shared/CsvImportDialog";
 import { listContacts } from "@/lib/supabase/contacts";
 import { getVoiceProfile } from "@/lib/supabase/voice";
-import { PipelineKanban } from "./PipelineKanban";
+import { PipelineView } from "./PipelineView";
 
 // the pipeline board. contacts load server-side through RLS, then the kanban
 // takes over on the client for drag, optimistic moves, and selection. the
@@ -45,7 +45,7 @@ export default async function PipelinePage() {
           </Link>
         </div>
       )}
-      <PipelineKanban initialContacts={contacts} />
+      <PipelineView initialContacts={contacts} />
     </div>
   );
 }
