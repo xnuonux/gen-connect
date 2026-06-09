@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Providers } from "@/app/providers";
+import { workspaceStats } from "@/lib/supabase/stats";
 
 const tabs = [
   { href: "/pipeline", label: "pipeline", icon: Users },
@@ -20,11 +21,12 @@ const tabs = [
   { href: "/sequences", label: "sequences", icon: Workflow },
 ] as const;
 
-export default function AppLayout({
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const stats = await workspaceStats();
   return (
     <div className="flex h-screen overflow-hidden bg-lunari-black text-lunari-cream">
       {/* left rail */}
@@ -91,11 +93,11 @@ export default function AppLayout({
             workspace
           </div>
           <div className="ml-auto flex items-center gap-4 text-xs text-lunari-neutral-400 font-mono">
-            <span>sends today · 0</span>
+            <span>sends today · {stats.sendsToday}</span>
             <span className="text-lunari-surface-elevated">|</span>
-            <span>replies · 0</span>
+            <span>replies · {stats.replies}</span>
             <span className="text-lunari-surface-elevated">|</span>
-            <span className="text-gen-accent">booked · 0</span>
+            <span className="text-gen-accent">booked · {stats.booked}</span>
           </div>
         </header>
 
