@@ -16,6 +16,7 @@ import { resolveFootprintAction } from "@/app/actions/footprint";
 import { generateDraftAction } from "@/app/actions/drafts";
 import { logOutcomeAction } from "@/app/actions/outcomes";
 import { OUTCOME_TYPES } from "@/lib/supabase/outcomes";
+import { detectSlop } from "@/lib/ai/slop";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import { type ContactStage } from "@/lib/types/contact";
 import { type Tier } from "@/lib/supabase/entitlements";
@@ -260,6 +261,11 @@ export function buildGenTools(userId: string, tier: Tier) {
         const toTen = (w: number) => Math.round((w / 5.5) * 10) / 10;
         const winner =
           r.draft.angles.find((a) => a.score?.is_winner) ?? r.draft.angles[0];
+        // anti-slop guard: flag a winner that reads like an ai-sdr template
+        // (formal opener + generic value prop + calendar-link drop) so gen can
+        // offer to sharpen it before it ships. this is the moat ... never send
+        // what a bot would send.
+        const voice = winner ? detectSlop(winner.body) : null;
         return {
           ok: true,
           winner: winner
@@ -269,6 +275,9 @@ export function buildGenTools(userId: string, tier: Tier) {
                 body: winner.body,
                 score: toTen(winner.score?.weighted_total ?? 0),
               }
+            : null,
+          voiceCheck: voice
+            ? { verdict: voice.verdict, tells: voice.tells }
             : null,
           angles: r.draft.angles.map((a) => ({
             angle: ANGLE_LABELS[a.angle_type as AngleType],
