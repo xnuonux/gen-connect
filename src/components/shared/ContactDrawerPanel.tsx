@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import {
@@ -12,11 +13,17 @@ import {
   Loader2,
   MapPin,
   Mail,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
 import { StageChip } from "@/components/shared/StageChip";
 import type { ContactDetail, ContactPresenceLink } from "@/lib/types/contact";
+import {
+  OUTCOME_TYPES,
+  OUTCOME_LABELS,
+  type OutcomeType,
+} from "@/lib/types/outcome";
 
 function initials(name: string | null): string {
   if (!name) return "?";
@@ -71,10 +78,97 @@ function LinkRow({ link }: { link: ContactPresenceLink }) {
   );
 }
 
+// log-a-win: a compact collapsible. dollar amount + outcome type ... feeds the
+// "$X in opportunities" hero. burgundy on the submit (a gen-authored win moment).
+function LogWinForm({
+  onLogWin,
+  logging,
+}: {
+  onLogWin: (input: { eventType: OutcomeType; dollarValue: number }) => void;
+  logging?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [type, setType] = useState<OutcomeType>("deal_closed");
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="planetarium inline-flex items-center gap-1.5 rounded-md border border-lunari-surface-elevated px-3 py-1.5 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream"
+      >
+        <Trophy className="h-4 w-4 stroke-[1.25]" />
+        <span>log a win</span>
+      </button>
+    );
+  }
+
+  const value = Number(amount);
+  const valid = amount.trim() !== "" && Number.isFinite(value) && value >= 0;
+
+  return (
+    <div className="space-y-2.5 rounded-md border border-lunari-surface-elevated p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-lunari-neutral-400">$</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="5000"
+          autoFocus
+          className="min-w-0 flex-1 bg-transparent text-sm tabular-nums text-lunari-cream placeholder:text-lunari-neutral-500 focus:outline-none"
+        />
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as OutcomeType)}
+          className="rounded bg-lunari-black px-1.5 py-1 text-xs text-lunari-cream/90 focus:outline-none"
+        >
+          {OUTCOME_TYPES.map((t) => (
+            <option key={t} value={t} className="bg-lunari-surface">
+              {OUTCOME_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={!valid || logging}
+          onClick={() => {
+            onLogWin({ eventType: type, dollarValue: value });
+            setOpen(false);
+            setAmount("");
+          }}
+          className="planetarium inline-flex items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-1.5 text-xs font-medium text-gen-accent hover:bg-gen-accent/20 disabled:opacity-50"
+        >
+          {logging ? (
+            <Loader2 className="h-4 w-4 animate-spin stroke-[1.5]" />
+          ) : (
+            <Trophy className="h-4 w-4 stroke-[1.5]" />
+          )}
+          <span>log it</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="text-xs text-lunari-neutral-500 hover:text-lunari-cream"
+        >
+          cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type ContactDrawerPanelProps = {
   detail: ContactDetail;
   resolving?: boolean;
+  logging?: boolean;
   onResolveFootprint: () => void;
+  onLogWin: (input: { eventType: OutcomeType; dollarValue: number }) => void;
   onClose: () => void;
   draftHref: string;
 };
@@ -87,7 +181,9 @@ type ContactDrawerPanelProps = {
 export function ContactDrawerPanel({
   detail,
   resolving = false,
+  logging = false,
   onResolveFootprint,
+  onLogWin,
   onClose,
   draftHref,
 }: ContactDrawerPanelProps) {
@@ -223,6 +319,12 @@ export function ContactDrawerPanel({
               </p>
             </section>
           ) : null}
+
+          {/* log a win on this contact ... feeds the dollars-not-fuel hero. */}
+          <section className="space-y-2">
+            <SectionLabel>outcome</SectionLabel>
+            <LogWinForm onLogWin={onLogWin} logging={logging} />
+          </section>
         </div>
 
         {/* sticky footer */}

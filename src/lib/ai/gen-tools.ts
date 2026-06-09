@@ -14,6 +14,8 @@ import { logOutboundEmail } from "@/lib/supabase/unibox";
 import { enrichContactAction } from "@/app/actions/enrichment";
 import { resolveFootprintAction } from "@/app/actions/footprint";
 import { generateDraftAction } from "@/app/actions/drafts";
+import { logOutcomeAction } from "@/app/actions/outcomes";
+import { OUTCOME_TYPES } from "@/lib/supabase/outcomes";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import { type ContactStage } from "@/lib/types/contact";
 import { type Tier } from "@/lib/supabase/entitlements";
@@ -355,6 +357,27 @@ export function buildGenTools(userId: string, tier: Tier) {
           );
         }
         return { results };
+      },
+    }),
+
+    log_outcome: tool({
+      description:
+        "log a real WIN to the opportunity ledger ... a gig/meeting booked, a closed deal, a qualified lead, a subscriber, a stream-revenue or merch spike. this is what powers the '$X in opportunities since launch' hero stat ... the number that makes the tool feel like it prints money. FREE, zero cost. pass the dollar value + the type, and the contactId it's tied to when you know it. reach for this the moment the user says they closed / booked / landed something.",
+      inputSchema: z.object({
+        contactId: z.string().uuid().nullish(),
+        eventType: z.enum(OUTCOME_TYPES),
+        dollarValue: z.number().min(0),
+        note: z.string().nullish(),
+      }),
+      execute: async ({ contactId, eventType, dollarValue, note }) => {
+        const r = await logOutcomeAction({
+          contactId,
+          eventType,
+          dollarValue,
+          note,
+        });
+        if (!r.ok) return { ok: false, error: r.error };
+        return { ok: true, logged: { eventType, dollarValue } };
       },
     }),
 

@@ -21,6 +21,11 @@ const tabs = [
   { href: "/sequences", label: "sequences", icon: Workflow },
 ] as const;
 
+// the dollars-not-fuel hero: whole dollars, comma-grouped. cents in, $ out.
+function formatUsd(cents: number): string {
+  return "$" + Math.round(cents / 100).toLocaleString("en-US");
+}
+
 export default async function AppLayout({
   children,
 }: {
@@ -89,8 +94,13 @@ export default async function AppLayout({
       <div className="flex-1 flex flex-col min-w-0">
         {/* top bar */}
         <header className="h-12 border-b border-lunari-surface-elevated bg-lunari-surface/60 backdrop-blur flex items-center px-6">
-          <div className="text-xs tracking-[0.2em] uppercase text-lunari-neutral-400 font-mono">
-            workspace
+          <div className="flex items-baseline gap-2.5">
+            <span className="font-mono text-sm font-semibold tabular-nums text-lunari-gold">
+              {formatUsd(stats.opportunitiesCents)}
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
+              in opportunities since launch
+            </span>
           </div>
           <div className="ml-auto flex items-center gap-4 text-xs text-lunari-neutral-400 font-mono">
             <span>sends today · {stats.sendsToday}</span>

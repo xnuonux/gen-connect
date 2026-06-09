@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { ContactDrawerPanel } from "@/components/shared/ContactDrawerPanel";
 import { fetchContactDetail } from "@/app/actions/contacts";
 import { resolveFootprintAction } from "@/app/actions/footprint";
+import { logOutcomeAction } from "@/app/actions/outcomes";
+import { type OutcomeType } from "@/lib/types/outcome";
 
 // the side-drawer container: owns open/close + esc, lazy-loads the full contact
 // when opened (never folded into the board query), and runs the resolve-presence
@@ -20,6 +23,7 @@ export function ContactDrawer({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const open = contactId !== null;
 
   // esc closes ... matches the design-system drawer contract.
@@ -58,6 +62,36 @@ export function ContactDrawer({
         error instanceof Error
           ? error.message
           : "couldn't pull that presence ... try again in a moment.",
+      );
+    },
+  });
+
+  const logWin = useMutation({
+    mutationFn: async (input: { eventType: OutcomeType; dollarValue: number }) => {
+      const r = await logOutcomeAction({
+        contactId,
+        eventType: input.eventType,
+        dollarValue: input.dollarValue,
+      });
+      if (!r.ok) throw new Error(r.error);
+      return input;
+    },
+    onSuccess: (input) => {
+      // the win celebration ... in voice, no em-dash. the hero number lives in
+      // the server-rendered (app) layout, so refresh to climb it now.
+      toast.success(
+        `that's the move ... $${Math.round(input.dollarValue).toLocaleString("en-US")} on the board.`,
+      );
+      router.refresh();
+      void queryClient.invalidateQueries({
+        queryKey: ["contact-detail", contactId],
+      });
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "couldn't log that win ... give it another shot.",
       );
     },
   });
@@ -103,7 +137,9 @@ export function ContactDrawer({
     <ContactDrawerPanel
       detail={detail}
       resolving={resolve.isPending}
+      logging={logWin.isPending}
       onResolveFootprint={() => resolve.mutate()}
+      onLogWin={(input) => logWin.mutate(input)}
       onClose={onClose}
       draftHref={`/draft/${detail.id}`}
     />
