@@ -227,6 +227,9 @@ export function buildGenTools(userId: string, tier: Tier) {
           company: f.company ?? null,
           location: f.location ?? null,
           website: f.website ?? null,
+          // the hook this resolve set on the contact (fill-missing) ... a
+          // footprint-only contact is now draftable off this. mention it.
+          hookSet: r.applied.hook ?? null,
           links: f.links.map((l) => ({
             platform: l.platform,
             url: l.url,

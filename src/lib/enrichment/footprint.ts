@@ -300,3 +300,29 @@ export async function resolveFootprint(
 
   return { ...profile, links: dedupeLinks(links), sources };
 }
+
+// the draftable contact fields a footprint teaches us. so a (free) footprint
+// resolve also fills an empty contact + hands the 5-angle drafter a real hook,
+// not just a pile of links ... a footprint-only contact becomes draftable. the
+// caller fills these into gc_contacts fill-missing (never overwrites what's there).
+export function footprintToContactFields(f: Footprint): {
+  name?: string;
+  title?: string;
+  company_name?: string;
+  location?: string;
+  hook?: string;
+} {
+  // prefer a clean, factual role-anchor; fall back to the first sentence of bio.
+  const roleHook =
+    f.jobTitle && f.company ? `${f.jobTitle} at ${f.company}` : f.jobTitle;
+  const bioHook = f.bio
+    ? f.bio.split(/(?<=[.!?])\s/)[0]?.slice(0, 200)
+    : undefined;
+  return {
+    name: f.name,
+    title: f.jobTitle,
+    company_name: f.company,
+    location: f.location,
+    hook: roleHook ?? bioHook,
+  };
+}

@@ -2,11 +2,18 @@
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { resolveFootprint, type Footprint } from "@/lib/enrichment/footprint";
-import { saveContactFootprint } from "@/lib/supabase/footprint";
+import {
+  resolveFootprint,
+  footprintToContactFields,
+  type Footprint,
+} from "@/lib/enrichment/footprint";
+import {
+  saveContactFootprint,
+  type FootprintFields,
+} from "@/lib/supabase/footprint";
 
 export type FootprintResult =
-  | { ok: true; footprint: Footprint }
+  | { ok: true; footprint: Footprint; applied: FootprintFields }
   | { ok: false; error: string };
 
 const Input = z.object({ contactId: z.string().uuid() });
@@ -76,8 +83,9 @@ export async function resolveFootprintAction(
       };
     }
 
-    await saveContactFootprint({ contactId: c.id, footprint });
-    return { ok: true, footprint };
+    const fields = footprintToContactFields(footprint);
+    await saveContactFootprint({ contactId: c.id, footprint, fields });
+    return { ok: true, footprint, applied: fields };
   } catch (err) {
     console.error("[footprint] resolve failed", err);
     return {
