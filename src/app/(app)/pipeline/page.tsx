@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { CsvImportDialog } from "@/components/shared/CsvImportDialog";
 import { listContacts } from "@/lib/supabase/contacts";
 import { getVoiceProfile } from "@/lib/supabase/voice";
 import { PipelineKanban } from "./PipelineKanban";
@@ -20,11 +21,12 @@ export default async function PipelinePage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="px-8 pb-5 pt-6">
+      <div className="flex items-start justify-between gap-4 px-8 pb-5 pt-6">
         <PageHeader
           title="pipeline"
           subtitle="every contact, every stage, every breath of the campaign."
         />
+        <CsvImportDialog />
       </div>
       {voiceActive ? null : (
         <div className="px-8 pb-3">
