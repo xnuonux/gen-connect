@@ -5,6 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { Sparkles, ArrowUp, Check, Circle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { fetchGenThread } from "@/app/actions/gen";
 
 type PlanStep = { label: string; status: "pending" | "active" | "done" };
 
@@ -43,7 +44,7 @@ export function GenChat({
   initialMessages: UIMessage[];
   summary: string | null;
 }) {
-  const { messages, sendMessage, status } = useChat({
+  const { messages, sendMessage, status, setMessages } = useChat({
     id: conversationId,
     messages: initialMessages,
     transport: new DefaultChatTransport({
@@ -54,17 +55,67 @@ export function GenChat({
     }),
   });
   const [input, setInput] = useState("");
+  const [stalled, setStalled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const busy = status === "submitted" || status === "streaming";
 
+  // a dangling user turn with no live stream = a reply we can't see. it happens
+  // when you tab away mid-response: the client useChat unmounts + loses the
+  // stream, but the server's consumeStream still persists the reply. so when the
+  // last message is a user turn and we're not actively streaming, gen is either
+  // still working server-side or just finished ... poll the persisted thread
+  // until the assistant reply lands, and show a "working" state meanwhile so it
+  // never looks like the reply vanished.
+  const last = messages[messages.length - 1];
+  const pendingReply = !busy && !!last && last.role === "user";
+
+  useEffect(() => {
+    if (!pendingReply) return;
+    let cancelled = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      tries += 1;
+      let fresh: UIMessage[] = [];
+      try {
+        fresh = await fetchGenThread(conversationId);
+      } catch {
+        // transient read hiccup ... keep waiting.
+      }
+      if (cancelled) return;
+      const freshLast = fresh[fresh.length - 1];
+      if (freshLast && freshLast.role === "assistant") {
+        setStalled(false);
+        setMessages(fresh);
+        return;
+      }
+      // big multi-step turns (lead pull + verify + enrich + draft) genuinely run
+      // several minutes ... observed 2.6-3.9min in dev. so the give-up has to sit
+      // WELL past the longest real turn, or it would flag a still-working turn as
+      // dead (the exact bug this fixes). ~160 * 3s = ~8min ... past that, the turn
+      // really didn't come back, so surface it rather than spin forever.
+      if (tries >= 160) {
+        setStalled(true);
+        return;
+      }
+      timer = setTimeout(tick, 3000);
+    };
+    timer = setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [pendingReply, conversationId, setMessages]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, busy]);
+  }, [messages, busy, pendingReply, stalled]);
 
   function send() {
     const text = input.trim();
     if (!text || busy) return;
+    setStalled(false);
     void sendMessage({ text });
     setInput("");
   }
@@ -80,11 +131,20 @@ export function GenChat({
             {messages.map((m) => (
               <MessageRow key={m.id} message={m} />
             ))}
-            {busy ? (
+            {(busy || pendingReply) && !stalled ? (
               <div className="flex items-center gap-2 text-xs text-lunari-neutral-500">
                 <Sparkles className="h-4 w-4 animate-pulse stroke-[1.25] text-gen-accent" />
                 <span className="font-mono uppercase tracking-[0.15em]">
                   gen is working ...
+                </span>
+              </div>
+            ) : null}
+            {stalled ? (
+              <div className="flex items-center gap-2 text-xs text-lunari-neutral-400">
+                <Circle className="h-3 w-3 stroke-[1.25] text-lunari-neutral-500" />
+                <span className="font-mono uppercase tracking-[0.15em]">
+                  that reply didn&apos;t come back ... your turn is saved, ask
+                  again or reload.
                 </span>
               </div>
             ) : null}
