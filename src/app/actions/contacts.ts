@@ -2,16 +2,22 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
 import {
   getContactDetail,
   listContacts,
   updateContactStage,
 } from "@/lib/supabase/contacts";
+import { moveContactsStage, addContactTags } from "@/lib/supabase/copilot";
 import {
   KANBAN_STAGES,
   type Contact,
   type ContactDetail,
+  type ContactStage,
 } from "@/lib/types/contact";
+
+// all eight stages incl the do_not_contact dismiss sink ... bulk move targets any.
+const ALL_STAGES = [...KANBAN_STAGES, "do_not_contact"] as const;
 
 const moveSchema = z.object({
   contactId: z.string().uuid(),
@@ -60,5 +66,62 @@ export async function moveContactToStage(
     return { ok: true };
   } catch {
     return { ok: false, error: "that didn't land ... the move didn't save." };
+  }
+}
+
+export type BulkResult = { ok: true; count: number } | { ok: false; error: string };
+
+async function signedIn(): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getUser();
+  return !!data.user;
+}
+
+const bulkMoveSchema = z.object({
+  contactIds: z.array(z.string().uuid()).min(1).max(500),
+  stage: z.enum(ALL_STAGES),
+});
+
+// move a multi-selected set to a stage (incl 'do_not_contact' to dismiss). RLS
+// scopes the write to the caller's own rows.
+export async function bulkMoveStageAction(input: unknown): Promise<BulkResult> {
+  if (!(await signedIn())) return { ok: false, error: "sign in first ..." };
+  const parsed = bulkMoveSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "that bulk move didn't look right ..." };
+  }
+  try {
+    const { moved } = await moveContactsStage(
+      parsed.data.contactIds,
+      parsed.data.stage as ContactStage,
+    );
+    revalidatePath("/pipeline");
+    return { ok: true, count: moved };
+  } catch {
+    return { ok: false, error: "that didn't land ... the move didn't save." };
+  }
+}
+
+const bulkTagSchema = z.object({
+  contactIds: z.array(z.string().uuid()).min(1).max(500),
+  tags: z.array(z.string()).min(1).max(10),
+});
+
+// tag a multi-selected set (merges, deduped, lowercased ... per addContactTags).
+export async function bulkTagAction(input: unknown): Promise<BulkResult> {
+  if (!(await signedIn())) return { ok: false, error: "sign in first ..." };
+  const parsed = bulkTagSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "those tags didn't look right ..." };
+  }
+  try {
+    const { tagged } = await addContactTags(
+      parsed.data.contactIds,
+      parsed.data.tags,
+    );
+    revalidatePath("/pipeline");
+    return { ok: true, count: tagged };
+  } catch {
+    return { ok: false, error: "couldn't tag those ... give it another shot." };
   }
 }
