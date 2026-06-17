@@ -23,6 +23,8 @@ import {
 import { searchXSignals } from "@/lib/signals/ingest";
 import { scoreSignalHit } from "@/lib/signals/score";
 import { evaluateTrigger } from "@/lib/triggers/evaluate";
+import { reserveCost, TOOL_COST_CENTS } from "@/lib/ai/gen-guard";
+import { getUserTier } from "@/lib/supabase/entitlements";
 import {
   listActiveSignalTriggers,
   incrementTriggerFire,
@@ -179,6 +181,41 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
     const agent = await getAgent(parsed.data.agentId);
     if (!agent) return { ok: false, error: "couldn't find that agent ..." };
 
+    // run-now is live only for the x-native intent signals; promotion/funding
+    // get their own actors next, so don't run the X actor for them (it would
+    // mint mislabeled, empty-title hits).
+    const X_NATIVE = ["searching_for", "tool_mention", "product_launch"];
+    if (!X_NATIVE.includes(agent.signalType)) {
+      return {
+        ok: false,
+        error:
+          "run-now is live for the x-intent signals (searching for, tool mention, launch) right now ... per-type actors land next.",
+      };
+    }
+
+    // a 60s cooldown stops the button (and two tabs) from hammering the shared
+    // apify pool + scoring budget.
+    if (agent.lastRanAt) {
+      const sinceMs = Date.now() - new Date(agent.lastRanAt).getTime();
+      if (sinceMs >= 0 && sinceMs < 60_000) {
+        return {
+          ok: false,
+          error: "just ran ... give it a minute before the next pull.",
+        };
+      }
+    }
+
+    // paid-gate the live spend (apify search + scoring), atomically reserved
+    // against today's ceiling ... the same gate every money-costing tool uses.
+    const tier = await getUserTier(user.id);
+    const gate = await reserveCost(
+      tier,
+      "signal_run",
+      TOOL_COST_CENTS.signal_run,
+      1,
+    );
+    if (gate) return { ok: false, error: gate.message };
+
     const nowIso = new Date().toISOString();
     const { raws, query, error } = await searchXSignals({
       signalType: agent.signalType,
@@ -254,19 +291,26 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
         if (!match) continue;
         const claim = await claimHitForDraft(f.hitId);
         if (!claim.claimed || !claim.hit) continue;
-        const cid = await createSourcedContact(
-          supabase,
-          user.id,
-          claim.hit,
-          objective,
-          match.id,
-        );
-        if (cid) {
+        try {
+          const cid = await createSourcedContact(
+            supabase,
+            user.id,
+            claim.hit,
+            objective,
+            match.id,
+          );
+          if (!cid) {
+            await revertHitClaim(f.hitId);
+            continue;
+          }
           await linkHitContact(f.hitId, cid);
           await incrementTriggerFire(match.id);
           fired += 1;
-        } else {
-          await revertHitClaim(f.hitId);
+        } catch (e) {
+          // any mid-sequence db error reverts the claim, so the hit re-surfaces
+          // in the feed instead of stranding 'actioned' with an unlinked contact.
+          await revertHitClaim(f.hitId).catch(() => {});
+          console.error("[signals] auto-fire hit failed", e);
         }
       }
     }

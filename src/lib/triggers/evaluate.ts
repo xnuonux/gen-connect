@@ -49,6 +49,10 @@ function matchContact(
   m: { stage_in?: string[]; stage_not_in?: string[] },
   contact: TriggerContact | null,
 ): boolean {
+  // first-touch auto-fire (+ the dry run) evaluate with no contact yet ... defer
+  // contact.* clauses rather than silently failing them. they apply on
+  // re-evaluation/enrollment once a contact exists, not at first detection.
+  if (!contact) return true;
   const stage = contact?.stage ?? null;
   if (m.stage_in && (!stage || !m.stage_in.includes(stage))) return false;
   if (m.stage_not_in && stage && m.stage_not_in.includes(stage)) return false;

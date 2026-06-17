@@ -363,7 +363,7 @@ function AgentCard({ agent }: { agent: SignalAgent }) {
             type="button"
             onClick={() => runNow.mutate()}
             disabled={runNow.isPending}
-            className="planetarium flex items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-2 py-1 text-xs font-medium text-gen-accent hover:bg-gen-accent-soft disabled:opacity-50"
+            className="planetarium flex items-center gap-1.5 rounded-md border border-lunari-surface-elevated px-2 py-1 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream disabled:opacity-50"
           >
             <Search className="h-3.5 w-3.5 stroke-[1.25]" />
             <span>{runNow.isPending ? "scanning ..." : "run now"}</span>

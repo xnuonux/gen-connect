@@ -82,8 +82,12 @@ export async function searchXSignals(args: {
       post_text: text,
       // for searching_for the post IS the matched need; the drafter opens on it.
       matched_need: text,
-      mentioned_tool: query,
-      category: query,
+      // do NOT backfill mentioned_tool/category from the boolean query ... that
+      // made the hook render `mentioned "fintech" OR "saas"`. leave them empty so
+      // hookFromHit falls back cleanly + the flame floor doesn't false-match a
+      // category. a named competitor can be extracted from post_text later.
+      mentioned_tool: "",
+      category: "",
       posted_at: s(it.created_at),
       detected_at: args.nowIso,
     });
