@@ -25,6 +25,7 @@ import { scoreSignalHit } from "@/lib/signals/score";
 import { evaluateTrigger } from "@/lib/triggers/evaluate";
 import { reserveCost, TOOL_COST_CENTS } from "@/lib/ai/gen-guard";
 import { getUserTier } from "@/lib/supabase/entitlements";
+import { generateDraftAction } from "@/app/actions/drafts";
 import {
   listActiveSignalTriggers,
   incrementTriggerFire,
@@ -161,7 +162,14 @@ const RunNowInput = z.object({
 });
 
 export type RunAgentResult =
-  | { ok: true; found: number; inserted: number; fired: number; query: string }
+  | {
+      ok: true;
+      found: number;
+      inserted: number;
+      fired: number;
+      drafted: number;
+      query: string;
+    }
   | { ok: false; error: string };
 
 // pull live X hits for an agent through the key pool, score each (deepseek-flash,
@@ -287,9 +295,13 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
     // beyond the dry run). each fresh hit is evaluated against the user's ACTIVE
     // signal triggers; the first match atomically claims the hit + pulls it into
     // the pipeline as a sourced contact (provenance: source_signal_id +
-    // source_trigger_id) + bumps the trigger. NO draft generation here ... that
-    // stays a deliberate, costed step, so auto-fire can never run away on spend.
+    // source_trigger_id) + bumps the trigger. then ONE auto-draft, bounded +
+    // gated (below): the single strongest fired hit, only when score > 0.7 AND
+    // the user is paid AND the cost reserve passes ... so the wedge goes fully
+    // autonomous ("the signal IS the message") with no latency or runaway spend.
     let fired = 0;
+    let drafted = 0;
+    let topFired: { cid: string; score: number } | null = null;
     const triggers = await listActiveSignalTriggers();
     if (triggers.length > 0 && fresh.length > 0) {
       const objective = await getAgentObjective(agent.id);
@@ -328,6 +340,9 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
           await linkHitContact(f.hitId, cid);
           await incrementTriggerFire(match.id);
           fired += 1;
+          if (!topFired || f.score > topFired.score) {
+            topFired = { cid, score: f.score };
+          }
         } catch (e) {
           // any mid-sequence db error reverts the claim, so the hit re-surfaces
           // in the feed instead of stranding 'actioned' with an unlinked contact.
@@ -335,12 +350,33 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
           console.error("[signals] auto-fire hit failed", e);
         }
       }
+
+      // ONE bounded auto-draft of the strongest fired hit (gated). reuses the
+      // 5-angle engine through the cost reserve, so it cannot run away on spend
+      // or latency ... at most one generation per run. score > 0.7 keeps it to
+      // genuinely hot signals; paid-tier + the reserve cap the cost.
+      if (topFired && topFired.score > 0.7 && tier === "paid") {
+        const draftGate = await reserveCost(
+          tier,
+          "draft_angles",
+          TOOL_COST_CENTS.draft_angles,
+          1,
+        );
+        if (!draftGate) {
+          try {
+            const dr = await generateDraftAction({ contactId: topFired.cid });
+            if (dr.ok) drafted = 1;
+          } catch (e) {
+            console.error("[signals] auto-draft failed", e);
+          }
+        }
+      }
     }
 
     await touchAgentRan(agent.id);
     revalidatePath("/signals");
     revalidatePath("/pipeline");
-    return { ok: true, found: raws.length, inserted, fired, query };
+    return { ok: true, found: raws.length, inserted, fired, drafted, query };
   } catch (err) {
     console.error("[signals] run agent failed", err);
     return { ok: false, error: "couldn't run that agent ... try again." };
