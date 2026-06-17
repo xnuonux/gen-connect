@@ -104,32 +104,24 @@ export async function listAgents(nowMs: number): Promise<SignalAgent[]> {
   }));
 }
 
-// the live feed: scored + pending hits, not dismissed/expired, hottest first.
-export async function listHits(limit = 60): Promise<SignalHitRow[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("gc_signal_hits")
-    .select(
-      "id, agent_id, contact_id, signal_type, raw, ai_score, ai_rationale, status, detected_at, draft_id",
-    )
-    .in("status", ["pending", "scored", "actioned"])
-    .order("ai_score", { ascending: false, nullsFirst: false })
-    .order("detected_at", { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(error.message);
+type RawHitRow = {
+  id: string;
+  agent_id: string;
+  contact_id: string | null;
+  signal_type: SignalType;
+  raw: Record<string, unknown> | null;
+  ai_score: number | string | null;
+  ai_rationale: string | null;
+  status: HitStatus;
+  detected_at: string;
+  draft_id: string | null;
+};
 
-  return ((data ?? []) as Array<{
-    id: string;
-    agent_id: string;
-    contact_id: string | null;
-    signal_type: SignalType;
-    raw: Record<string, unknown> | null;
-    ai_score: number | string | null;
-    ai_rationale: string | null;
-    status: HitStatus;
-    detected_at: string;
-    draft_id: string | null;
-  }>).map((h) => ({
+const HIT_COLS =
+  "id, agent_id, contact_id, signal_type, raw, ai_score, ai_rationale, status, detected_at, draft_id";
+
+function mapHit(h: RawHitRow): SignalHitRow {
+  return {
     id: h.id,
     agentId: h.agent_id,
     contactId: h.contact_id,
@@ -140,7 +132,36 @@ export async function listHits(limit = 60): Promise<SignalHitRow[]> {
     status: h.status,
     detectedAt: h.detected_at,
     draftId: h.draft_id,
-  }));
+  };
+}
+
+// the live feed: scored + pending hits, not dismissed/expired, hottest first.
+// the precision slider is honored here ... a scored hit below its agent's
+// score_threshold never surfaces (docs/06), while unscored (pending) hits still
+// show so a haiku outage never strands them. the threshold gate is a cross-row
+// compare PostgREST can't express, so we join the agent + filter in memory.
+export async function listHits(limit = 60): Promise<SignalHitRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_signal_hits")
+    .select(`${HIT_COLS}, agent:gc_signal_agents(score_threshold)`)
+    .in("status", ["pending", "scored", "actioned"])
+    .order("ai_score", { ascending: false, nullsFirst: false })
+    .order("detected_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+
+  type ThresholdEmbed = { score_threshold: number | string | null };
+  return ((data ?? []) as unknown as Array<
+    RawHitRow & { agent: ThresholdEmbed | ThresholdEmbed[] | null }
+  >)
+    .filter((h) => {
+      if (h.ai_score == null) return true; // unscored ... never strand it
+      const a = Array.isArray(h.agent) ? h.agent[0] : h.agent;
+      const threshold = Number(a?.score_threshold ?? 0);
+      return Number(h.ai_score) >= threshold;
+    })
+    .map(mapHit);
 }
 
 export async function createAgent(args: {
@@ -203,10 +224,13 @@ export async function setAgentStatus(
   status: AgentStatus,
 ): Promise<void> {
   const supabase = await createClient();
-  await supabase
+  // PostgREST does not throw ... check {error} so a rejected write surfaces as a
+  // real failure instead of a false-success toast.
+  const { error } = await supabase
     .from("gc_signal_agents")
     .update({ status })
     .eq("id", agentId);
+  if (error) throw new Error(error.message);
 }
 
 // insert a detected hit. deduped within an agent on raw.source_id via the unique
@@ -256,16 +280,18 @@ export async function dismissHit(
   const uid = await userId();
   if (!uid) return;
   const supabase = await createClient();
-  await supabase.from("gc_signal_dismissals").insert({
+  const { error: insErr } = await supabase.from("gc_signal_dismissals").insert({
     user_id: uid,
     hit_id: hitId,
     reason,
     notes: notes ?? null,
   });
-  await supabase
+  if (insErr) throw new Error(insErr.message);
+  const { error: updErr } = await supabase
     .from("gc_signal_hits")
     .update({ status: "dismissed" })
     .eq("id", hitId);
+  if (updErr) throw new Error(updErr.message);
 }
 
 export async function markHitActioned(
@@ -289,35 +315,68 @@ export async function getHit(hitId: string): Promise<SignalHitRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("gc_signal_hits")
-    .select(
-      "id, agent_id, contact_id, signal_type, raw, ai_score, ai_rationale, status, detected_at, draft_id",
-    )
+    .select(HIT_COLS)
     .eq("id", hitId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return null;
-  const h = data as {
-    id: string;
-    agent_id: string;
-    contact_id: string | null;
-    signal_type: SignalType;
-    raw: Record<string, unknown> | null;
-    ai_score: number | string | null;
-    ai_rationale: string | null;
-    status: HitStatus;
-    detected_at: string;
-    draft_id: string | null;
-  };
-  return {
-    id: h.id,
-    agentId: h.agent_id,
-    contactId: h.contact_id,
-    signalType: h.signal_type,
-    raw: h.raw ?? {},
-    aiScore: h.ai_score == null ? null : Number(h.ai_score),
-    aiRationale: h.ai_rationale,
-    status: h.status,
-    detectedAt: h.detected_at,
-    draftId: h.draft_id,
-  };
+  return mapHit(data as RawHitRow);
+}
+
+// atomically claim a hit for the draft bridge: flip it to 'actioned' ONLY if it
+// is not already linked to a contact. exactly one concurrent caller can win, so
+// a double-click can never double-create a contact (the TOCTOU fix). returns
+// { claimed:true } for the winner, { claimed:false } if it was already taken.
+export async function claimHitForDraft(
+  hitId: string,
+): Promise<{ claimed: boolean; hit: SignalHitRow | null }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_signal_hits")
+    .update({ status: "actioned", actioned_at: new Date().toISOString() })
+    .eq("id", hitId)
+    .is("contact_id", null)
+    .neq("status", "actioned")
+    .select(HIT_COLS)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return { claimed: true, hit: mapHit(data as RawHitRow) };
+  return { claimed: false, hit: await getHit(hitId) };
+}
+
+// stamp the created contact onto the claimed hit (status already 'actioned').
+export async function linkHitContact(
+  hitId: string,
+  contactId: string,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("gc_signal_hits")
+    .update({ contact_id: contactId })
+    .eq("id", hitId);
+  if (error) throw new Error(error.message);
+}
+
+// undo a claim if the contact insert failed, so a retry can re-claim cleanly.
+export async function revertHitClaim(hitId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("gc_signal_hits")
+    .update({ status: "scored", actioned_at: null })
+    .eq("id", hitId);
+}
+
+// the originating agent's objective ... the 5-angle anchor the drafter needs.
+export async function getAgentObjective(
+  agentId: string,
+): Promise<Record<string, unknown>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_signal_agents")
+    .select("objective")
+    .eq("id", agentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const o = (data as { objective: Record<string, unknown> | null } | null)?.objective;
+  return o ?? {};
 }

@@ -10,7 +10,7 @@ import {
   setUserOverride,
   type DraftRecord,
 } from "@/lib/supabase/drafts";
-import { generateFiveAngles } from "@/lib/ai/drafting";
+import { generateFiveAngles, type DraftObjective } from "@/lib/ai/drafting";
 import { judgeAngles } from "@/lib/ai/judge";
 import {
   DRAFT_GENERATION_MODEL,
@@ -46,6 +46,25 @@ function extractHook(enrichment: unknown): string | null {
     if (typeof v === "string" && v.trim().length > 0) return v.trim();
   }
   return null;
+}
+
+// a signal-sourced contact carries its agent's objective (the wizard goal step)
+// in enrichment_data.objective ... the 5-angle anchor. pull it so the drafter
+// writes toward the real ask, not a guess. returns null for a manual contact.
+function extractObjective(enrichment: unknown): DraftObjective | null {
+  if (!enrichment || typeof enrichment !== "object") return null;
+  const o = (enrichment as Record<string, unknown>).objective;
+  if (!o || typeof o !== "object") return null;
+  const obj = o as Record<string, unknown>;
+  const goal = typeof obj.goal === "string" && obj.goal.trim() ? obj.goal.trim() : null;
+  const tone = typeof obj.tone === "string" && obj.tone.trim() ? obj.tone.trim() : null;
+  const pains = Array.isArray(obj.pain_points)
+    ? (obj.pain_points as unknown[]).filter(
+        (p): p is string => typeof p === "string" && p.trim().length > 0,
+      )
+    : null;
+  if (!goal && !(pains && pains.length)) return null;
+  return { goal, pain_points: pains, tone };
 }
 
 const GenerateInput = z.object({ contactId: z.string().uuid() });
@@ -107,13 +126,14 @@ export async function generateDraftAction(
     };
 
     const voiceProfile = await getVoiceProfile();
-    const angles = await generateFiveAngles({ contact, voiceProfile });
+    const objective = extractObjective(c.enrichment_data);
+    const angles = await generateFiveAngles({ contact, voiceProfile, objective });
     const judged = await judgeAngles({ angles, voiceProfile });
 
     const draft = await createDraftFromGeneration({
       userId: user.id,
       contactId: contact.id,
-      objective: null,
+      objective,
       angles,
       judged,
       generationModel: DRAFT_GENERATION_MODEL,

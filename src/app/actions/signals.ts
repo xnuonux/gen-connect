@@ -9,8 +9,10 @@ import {
   createAgent,
   setAgentStatus,
   dismissHit,
-  getHit,
-  markHitActioned,
+  claimHitForDraft,
+  getAgentObjective,
+  linkHitContact,
+  revertHitClaim,
   type SignalAgent,
   type SignalHitRow,
   type AgentStatus,
@@ -167,11 +169,18 @@ export async function draftFromHitAction(
   }
 
   try {
-    const hit = await getHit(parsed.data.hitId);
+    // atomic claim ... only one caller wins, so a double-click never
+    // double-creates a contact (the TOCTOU fix). a hit already linked to a
+    // contact routes straight back to it instead of inserting again.
+    const { claimed, hit } = await claimHitForDraft(parsed.data.hitId);
     if (!hit) return { ok: false, error: "couldn't find that signal ..." };
+    if (!claimed && hit.contactId) {
+      return { ok: true, contactId: hit.contactId };
+    }
 
-    // if the hit already produced a contact, just route back to it.
-    if (hit.contactId) return { ok: true, contactId: hit.contactId };
+    // the originating agent's objective is the 5-angle anchor ... carry it onto
+    // the sourced contact so the drafter writes toward the real ask, not a guess.
+    const objective = await getAgentObjective(hit.agentId);
 
     const supabase = await createClient();
     const r = hit.raw;
@@ -188,17 +197,19 @@ export async function draftFromHitAction(
         stage: "cold",
         source: "signal",
         source_signal_id: hit.id,
-        enrichment_data: { ...r, hook, signal_type: hit.signalType },
+        enrichment_data: { ...r, hook, signal_type: hit.signalType, objective },
       })
       .select("id")
       .single();
 
     if (error || !created) {
+      // let a retry re-claim cleanly rather than stranding an actioned hit.
+      await revertHitClaim(hit.id);
       throw new Error(error?.message ?? "contact insert failed");
     }
 
     const contactId = created.id as string;
-    await markHitActioned(hit.id, null, contactId);
+    await linkHitContact(hit.id, contactId);
     revalidatePath("/signals");
     revalidatePath("/pipeline");
     return { ok: true, contactId };
