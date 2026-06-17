@@ -37,6 +37,11 @@ export type Contact = {
   aiScore: number;
   warmthScore: number;
   company: Company | null;
+  // provenance ... how this contact entered the pipeline. `source` is the lane
+  // (signal, csv, gen, manual); `provenance` is the why-they're-here breadcrumb
+  // (the signal hook), shown on signal-sourced cards.
+  source: string | null;
+  provenance: string | null;
   lastActionAt: string | null;
   createdAt: string;
 };

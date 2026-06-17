@@ -10,7 +10,7 @@ import {
 // the columns the pipeline needs. the embedded company resolves through the
 // gc_contacts.company_id foreign key.
 const CONTACT_SELECT =
-  "id, name, email, title, stage, ai_score, warmth_score, last_action_at, created_at, company:gc_companies(name, domain)";
+  "id, name, email, title, stage, ai_score, warmth_score, source, last_action_at, created_at, hook:enrichment_data->>hook, company:gc_companies(name, domain)";
 
 // postgrest returns numeric(3,1) as a string ... coerce so the ui can do math.
 function toNumber(value: unknown): number {
@@ -26,6 +26,8 @@ type ContactRow = {
   stage: string;
   ai_score: number | string | null;
   warmth_score: number | string | null;
+  source: string | null;
+  hook: string | null;
   last_action_at: string | null;
   created_at: string;
   company: { name: string | null; domain: string | null } | null;
@@ -41,6 +43,11 @@ function mapContact(row: ContactRow): Contact {
     aiScore: toNumber(row.ai_score),
     warmthScore: toNumber(row.warmth_score),
     company: row.company,
+    source: row.source,
+    provenance:
+      typeof row.hook === "string" && row.hook.trim().length > 0
+        ? row.hook.trim()
+        : null,
     lastActionAt: row.last_action_at,
     createdAt: row.created_at,
   };

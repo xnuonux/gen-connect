@@ -67,6 +67,14 @@ export function ContactCard({
         </p>
       ) : null}
 
+      {/* the why-they're-here breadcrumb ... only on signal-sourced cards. */}
+      {contact.source === "signal" && contact.provenance ? (
+        <p className="mt-1.5 flex items-start gap-1 text-[11px] text-lunari-neutral-500">
+          <span aria-hidden>↳</span>
+          <span className="truncate">{contact.provenance}</span>
+        </p>
+      ) : null}
+
       <div className="mt-3 flex items-center justify-between">
         <FlameScore score={contact.warmthScore} />
         {stamp ? (
