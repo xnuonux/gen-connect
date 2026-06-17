@@ -10,7 +10,7 @@ import {
   type Trigger,
   type TriggerStatus,
 } from "@/lib/supabase/triggers";
-import { listHits } from "@/lib/supabase/signals";
+import { listHitsForDryRun } from "@/lib/supabase/signals";
 import { evaluateTrigger } from "@/lib/triggers/evaluate";
 import {
   SIGNAL_TYPES,
@@ -126,7 +126,7 @@ export async function testTriggerAction(
   const condition = parsed.data as TriggerCondition;
 
   try {
-    const hits = await listHits(200);
+    const hits = await listHitsForDryRun(200);
     const nowMs = Date.now();
     const matches = hits.filter((h) =>
       evaluateTrigger(

@@ -5,7 +5,8 @@ import { type SignalHit } from "@/lib/types/signal";
 // actioned hit in the last 7 days, coalesce instead of firing a second sequence.
 // the higher-scored signal leads as the PRIMARY angle; the lower joins as a
 // SECONDARY payload that actively enriches the 5-angle draft (not just context).
-// pure function, tested with fixtures, `nowMs` injected for determinism. see
+// pure function, `nowMs` injected for determinism. wires into the trigger fire
+// path (gated on the apify webhook); fixture tests pending. see
 // docs/06-signals-spec.md "cooldown policy".
 
 const WINDOW_MS = 7 * 24 * 36e5;

@@ -164,6 +164,20 @@ export async function listHits(limit = 60): Promise<SignalHitRow[]> {
     .map(mapHit);
 }
 
+// the dry-run set: ALL the user's recent hits regardless of feed status or the
+// per-agent threshold, so a trigger test ("would this have caught these") counts
+// honestly against full history, not the filtered live feed.
+export async function listHitsForDryRun(limit = 200): Promise<SignalHitRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_signal_hits")
+    .select(HIT_COLS)
+    .order("detected_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as RawHitRow[]).map(mapHit);
+}
+
 export async function createAgent(args: {
   name: string;
   signalType: SignalType;

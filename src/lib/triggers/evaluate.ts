@@ -7,9 +7,11 @@ import {
 // the trigger predicate evaluator. a PURE function over { condition, hit,
 // contact } returning boolean. the condition is jsonb (no string dsl, ever ...
 // jsonb is the one source of truth, editable by a form ui or a raw toggle).
-// implicit AND across the top-level keys; `not` is a recursive negation. tested
-// with fixtures per signal_type. see docs/06-signals-spec.md "the predicate
-// language". `nowMs` is injected so freshness checks are deterministic in tests.
+// implicit AND across the top-level keys; `not` is a recursive negation.
+// exercised at runtime by the triggers dry-run (testTriggerAction); per-
+// signal_type fixture tests are pending (no test runner wired yet). see
+// docs/06-signals-spec.md "the predicate language". `nowMs` is injected so
+// freshness checks are deterministic.
 
 function lc(v: unknown): string {
   return String(v ?? "").toLowerCase();

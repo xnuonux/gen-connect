@@ -25,7 +25,8 @@ import type { Trigger, TriggerStatus } from "@/lib/supabase/triggers";
 function conditionSummary(c: TriggerCondition): string {
   const parts: string[] = [];
   parts.push(c.signal_type ? SIGNAL_LABELS[c.signal_type] : "any signal");
-  if (typeof c.score_gte === "number") parts.push(`score >= ${c.score_gte}`);
+  if (typeof c.score_gte === "number")
+    parts.push(`score >= ${Number(c.score_gte).toFixed(2)}`);
   if (typeof c.detected_within_hours === "number")
     parts.push(`within ${c.detected_within_hours}h`);
   const raw = c.raw ?? {};
@@ -118,6 +119,7 @@ function TriggerCard({ trigger }: { trigger: Trigger }) {
   });
 
   const active = trigger.status === "active";
+  const dryRun = trigger.status === "dry_run";
 
   return (
     <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
@@ -150,8 +152,13 @@ function TriggerCard({ trigger }: { trigger: Trigger }) {
         <button
           type="button"
           onClick={() => toggle.mutate()}
-          disabled={toggle.isPending || trigger.status === "dry_run"}
-          className="planetarium flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream disabled:opacity-40"
+          disabled={toggle.isPending}
+          className={cn(
+            "planetarium flex items-center gap-1.5 rounded-md px-2 py-1 text-xs hover:bg-lunari-surface-elevated disabled:opacity-40",
+            dryRun
+              ? "text-gen-accent hover:text-gen-accent"
+              : "text-lunari-neutral-400 hover:text-lunari-cream",
+          )}
         >
           {active ? (
             <>
@@ -161,7 +168,7 @@ function TriggerCard({ trigger }: { trigger: Trigger }) {
           ) : (
             <>
               <Play className="h-3.5 w-3.5 stroke-[1.25]" />
-              <span>resume</span>
+              <span>{dryRun ? "go live" : "resume"}</span>
             </>
           )}
         </button>
@@ -307,7 +314,9 @@ function TriggerBuilder({
               max={1}
               step={0.05}
               value={scoreGte}
-              onChange={(e) => setScoreGte(Number(e.target.value))}
+              onChange={(e) =>
+                setScoreGte(Math.round(Number(e.target.value) * 100) / 100)
+              }
               className="mt-2 w-full accent-gen-accent"
             />
           </div>
