@@ -37,7 +37,7 @@ punchy sentences with the occasional longer one for rhythm, vulnerable but
 confident, zero corporate speak. sounds like a sharp solo founder texting a
 peer, not an SDR running a play.`;
 
-function voiceBlock(profile: VoiceProfile | null): string {
+export function voiceBlock(profile: VoiceProfile | null): string {
   if (!profile || !profile.active_for_outreach) {
     return DOM_VOICE_PRIOR;
   }
