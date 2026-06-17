@@ -1,18 +1,9 @@
-import { PageHeader } from "@/components/shared/PageHeader";
-import { ComingSoon } from "@/components/shared/ComingSoon";
+import { fetchTriggers } from "@/app/actions/triggers";
+import { TriggersView } from "./TriggersView";
 
-export default function TriggersPage() {
-  return (
-    <div className="space-y-6 px-8 py-6">
-      <PageHeader
-        title="triggers"
-        subtitle="the rules engine ... when a thing happens, the right thing fires."
-      />
-      <ComingSoon
-        label="triggers"
-        line="no triggers yet. triggers fire off signal hits ... a promotion, a launch, someone searching for a tool like yours ... so they light up once the signals layer is live."
-        cta={{ href: "/signals", label: "see signals" }}
-      />
-    </div>
-  );
+// server-loaded so the first paint is real triggers. the client view owns the
+// builder + the live dry-run test against recent hits.
+export default async function TriggersPage() {
+  const triggers = await fetchTriggers();
+  return <TriggersView initialTriggers={triggers} />;
 }
