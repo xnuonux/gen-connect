@@ -11,6 +11,7 @@ import {
   Flame,
   Inbox as InboxIcon,
   CornerDownLeft,
+  CalendarCheck,
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/utils/cn";
@@ -20,7 +21,9 @@ import {
   draftReplyAction,
   sendReplyAction,
   markThreadReadAction,
+  markBookedAction,
 } from "@/app/actions/unibox";
+import { WinCelebration } from "@/components/shared/WinCelebration";
 import type { UniboxThread } from "@/lib/supabase/unibox";
 
 function initials(name: string | null): string {
@@ -56,6 +59,8 @@ export function UniboxView({
   const [meta, setMeta] = useState<{ angle: string; confidence: number } | null>(
     null,
   );
+  // the gold-pulse moment ... fires when a thread is marked booked from here.
+  const [win, setWin] = useState<string | null>(null);
 
   const { data: threads } = useQuery({
     queryKey: ["unibox-threads"],
@@ -106,6 +111,22 @@ export function UniboxView({
     },
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "couldn't send that."),
+  });
+
+  const bookMut = useMutation({
+    mutationFn: async (contactId: string) => {
+      const r = await markBookedAction({ contactId });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: () => {
+      toast.success("booked. thats the move.");
+      setWin("booked. lock the next one.");
+      void queryClient.invalidateQueries({ queryKey: ["unibox-threads"] });
+      void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "couldn't mark that booked."),
   });
 
   function selectThread(id: string) {
@@ -302,11 +323,28 @@ export function UniboxView({
               <CornerDownLeft className="h-3.5 w-3.5 stroke-[1.25]" />
               <span>open in draft studio</span>
             </Link>
+            <button
+              type="button"
+              onClick={() =>
+                selected.contact && bookMut.mutate(selected.contact.id)
+              }
+              disabled={bookMut.isPending}
+              className="planetarium flex w-full items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-2 text-xs font-medium text-gen-accent hover:bg-gen-accent-soft disabled:opacity-50"
+            >
+              <CalendarCheck className="h-3.5 w-3.5 stroke-[1.25]" />
+              <span>{bookMut.isPending ? "marking ..." : "mark booked"}</span>
+            </button>
           </div>
         ) : (
           <p className="text-xs text-lunari-neutral-400">no contact selected.</p>
         )}
       </aside>
+
+      <WinCelebration
+        show={win !== null}
+        quote={win ?? undefined}
+        onDone={() => setWin(null)}
+      />
     </div>
   );
 }

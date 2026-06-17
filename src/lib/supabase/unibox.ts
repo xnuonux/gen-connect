@@ -188,6 +188,15 @@ export async function markThreadRead(threadId: string): Promise<void> {
     .eq("id", threadId);
 }
 
+// an outbound reply is a touch ... keep the contact fresh in the pipeline.
+export async function touchContact(contactId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("gc_contacts")
+    .update({ last_action_at: new Date().toISOString() })
+    .eq("id", contactId);
+}
+
 // log a sent email into the unibox: find or create the contact's email thread,
 // then append an outbound message. RLS-scoped via the session client. lets a
 // send show up in the inbox, closing the loop visibly.

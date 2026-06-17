@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   listThreads,
@@ -8,10 +9,13 @@ import {
   getThreadHead,
   logOutboundEmail,
   markThreadRead,
+  touchContact,
   type UniboxThread,
   type UniboxMessage,
 } from "@/lib/supabase/unibox";
 import { getVoiceProfile } from "@/lib/supabase/voice";
+import { updateContactStage } from "@/lib/supabase/contacts";
+import { recordOutcome } from "@/lib/supabase/outcomes";
 import { draftReply, type ReplyTranscriptLine } from "@/lib/ai/reply";
 import { sendDraftEmail } from "@/lib/email/send";
 import { scrubVoice } from "@/lib/ai/scrub";
@@ -43,6 +47,40 @@ export async function markThreadReadAction(threadId: string): Promise<void> {
   const user = await requireUser();
   if (!user) return;
   await markThreadRead(threadId);
+}
+
+export type MarkBookedResult = { ok: true } | { ok: false; error: string };
+
+// the win moment from inside the inbox: they said yes. move the contact to
+// booked + log a meeting to the opportunity ledger so the hero stat moves and
+// the gold pulse can fire. dollar value lands later via the drawer's log-a-win.
+export async function markBookedAction(
+  rawInput: unknown,
+): Promise<MarkBookedResult> {
+  const user = await requireUser();
+  if (!user) return { ok: false, error: "sign in first ..." };
+
+  const parsed = z
+    .object({ contactId: z.string().uuid() })
+    .safeParse(rawInput);
+  if (!parsed.success) {
+    return { ok: false, error: "that contact didn't look right ... refresh." };
+  }
+
+  try {
+    await updateContactStage(parsed.data.contactId, "booked");
+    await recordOutcome(user.id, {
+      contactId: parsed.data.contactId,
+      eventType: "meeting_booked",
+      dollarValue: 0,
+      note: "booked from the unibox",
+    });
+    revalidatePath("/", "layout");
+    return { ok: true };
+  } catch (err) {
+    console.error("[unibox] mark booked failed", err);
+    return { ok: false, error: "couldn't mark that booked ... try again." };
+  }
 }
 
 export type DraftReplyResult =
@@ -151,6 +189,8 @@ export async function sendReplyAction(
         body: cleanBody,
         externalId: result.id ?? null,
       });
+      // an outbound reply is a touch ... keep them fresh in the pipeline.
+      await touchContact(head.contactId);
     }
 
     return { ok: true, mode: result.mode, deliveredTo: result.deliveredTo };
