@@ -4,6 +4,7 @@ import {
   type EnrichmentSource,
   type ProviderResult,
 } from "@/lib/types/enrichment";
+import { getApifyPool, runApifyActorPooled } from "@/lib/enrichment/apify-pool";
 
 // the provider adapters. each reads its own env key and runs real HTTP when
 // configured; absent a key it returns a clean { status: 'skipped',
@@ -170,9 +171,10 @@ const crawl4ai: EnrichmentProvider = {
 const apifyLeadsFinder: EnrichmentProvider = {
   source: "apify_leads_finder",
   async enrich(input) {
-    const token = process.env.APIFY_TOKEN;
     const actor = process.env.APIFY_LEADS_ACTOR;
-    if (!token) return skipped("apify_leads_finder", "not_configured");
+    if (getApifyPool().length === 0) {
+      return skipped("apify_leads_finder", "not_configured");
+    }
     if (!actor) {
       return skipped("apify_leads_finder", "no actor ... set APIFY_LEADS_ACTOR");
     }
@@ -187,47 +189,35 @@ const apifyLeadsFinder: EnrichmentProvider = {
       );
     }
 
-    try {
-      const dataset = (await fetchJson(
-        `https://api.apify.com/v2/acts/${encodeURIComponent(actor)}/run-sync-get-dataset-items?token=${token}`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            firstName,
-            lastName: lastName || undefined,
-            companyDomain: [input.company_domain],
-            personTitle: input.title ? [input.title] : undefined,
-            includeEmails: true,
-            totalResults: 1,
-          }),
-        },
-        90000,
-      )) as Record<string, unknown>[];
+    // the pool rotates keys + fails over a spent/limited one.
+    const run = await runApifyActorPooled(
+      actor,
+      {
+        firstName,
+        lastName: lastName || undefined,
+        companyDomain: [input.company_domain],
+        personTitle: input.title ? [input.title] : undefined,
+        includeEmails: true,
+        totalResults: 1,
+      },
+      90000,
+    );
+    if (!run.ok) return errored("apify_leads_finder", run.error);
 
-      const row = (Array.isArray(dataset) ? dataset[0] : undefined) ?? {};
-      const r = row as Record<string, unknown>;
-      const org = (r.organization ?? {}) as Record<string, unknown>;
-      const city = str(r.city);
-      const country = str(r.country);
-      const fields: EnrichedFields = {
-        email: str(r.email),
-        title: str(r.title) ?? str(r.headline),
-        linkedin_url: str(r.linkedin_url),
-        company_name: str(org.name) ?? str(r.organization_name),
-        company_domain: str(org.primary_domain) ?? str(org.website_url),
-        industry: str(org.industry) ?? str(r.industry),
-        location: city && country ? `${city}, ${country}` : str(r.location),
-      };
-      return ok("apify_leads_finder", fields, {
-        found: Array.isArray(dataset) ? dataset.length : 0,
-      });
-    } catch (e) {
-      return errored(
-        "apify_leads_finder",
-        e instanceof Error ? e.message : "failed",
-      );
-    }
+    const r = (run.items[0] ?? {}) as Record<string, unknown>;
+    const org = (r.organization ?? {}) as Record<string, unknown>;
+    const city = str(r.city);
+    const country = str(r.country);
+    const fields: EnrichedFields = {
+      email: str(r.email),
+      title: str(r.title) ?? str(r.headline),
+      linkedin_url: str(r.linkedin_url),
+      company_name: str(org.name) ?? str(r.organization_name),
+      company_domain: str(org.primary_domain) ?? str(org.website_url),
+      industry: str(org.industry) ?? str(r.industry),
+      location: city && country ? `${city}, ${country}` : str(r.location),
+    };
+    return ok("apify_leads_finder", fields, { found: run.items.length });
   },
 };
 

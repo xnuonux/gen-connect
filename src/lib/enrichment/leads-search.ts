@@ -1,4 +1,5 @@
 import { PROVIDERS } from "@/lib/enrichment/providers";
+import { getApifyPool, runApifyActorPooled } from "@/lib/enrichment/apify-pool";
 
 // lead discovery + batch verification for the Gen copilot's tools. find by
 // company domain via Hunter (the path that works on the free tier), verify in
@@ -140,9 +141,10 @@ function mapApifyLeadRow(r: Record<string, unknown>): FoundLead | null {
 export async function findLeadsByIcp(
   q: IcpLeadQuery,
 ): Promise<{ leads: FoundLead[]; notes: string[]; fetched: number }> {
-  const token = process.env.APIFY_TOKEN;
   const actor = process.env.APIFY_LEADS_ACTOR;
-  if (!token) return { leads: [], notes: ["apify not configured"], fetched: 0 };
+  if (getApifyPool().length === 0) {
+    return { leads: [], notes: ["apify not configured"], fetched: 0 };
+  }
   if (!actor) {
     return { leads: [], notes: ["no actor ... set APIFY_LEADS_ACTOR"], fetched: 0 };
   }
@@ -166,44 +168,22 @@ export async function findLeadsByIcp(
   if (q.employeeSizes?.length) input.companyEmployeeSize = q.employeeSizes;
   if (q.seniority?.length) input.seniority = q.seniority;
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 120000);
-  try {
-    const res = await fetch(
-      `https://api.apify.com/v2/acts/${encodeURIComponent(actor)}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-        signal: ctrl.signal,
-      },
-    );
-    if (!res.ok) throw new Error(`apify http ${res.status}`);
-    const dataset = (await res.json()) as unknown;
-    const rows = Array.isArray(dataset)
-      ? (dataset as Record<string, unknown>[])
-      : [];
+  // the pool rotates across our apify keys + fails over a spent/limited one.
+  const run = await runApifyActorPooled(actor, input);
+  if (!run.ok) return { leads: [], notes: [run.error], fetched: 0 };
 
-    const seen = new Set<string>();
-    const leads: FoundLead[] = [];
-    for (const r of rows) {
-      const lead = mapApifyLeadRow(r);
-      if (!lead) continue;
-      const k = lead.email.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      leads.push(lead);
-    }
-    return { leads, notes: [], fetched: rows.length };
-  } catch (e) {
-    return {
-      leads: [],
-      notes: [e instanceof Error ? e.message : "apify failed"],
-      fetched: 0,
-    };
-  } finally {
-    clearTimeout(timer);
+  const rows = run.items as Record<string, unknown>[];
+  const seen = new Set<string>();
+  const leads: FoundLead[] = [];
+  for (const r of rows) {
+    const lead = mapApifyLeadRow(r);
+    if (!lead) continue;
+    const k = lead.email.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    leads.push(lead);
   }
+  return { leads, notes: [], fetched: rows.length };
 }
 
 export type VerifyResult = { email: string; status: string; verified: boolean };
