@@ -15,6 +15,7 @@ import {
   Sparkles,
   ChevronRight,
   ChevronLeft,
+  Search,
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/utils/cn";
@@ -26,6 +27,7 @@ import {
   setAgentStatusAction,
   dismissHitAction,
   draftFromHitAction,
+  runAgentNowAction,
 } from "@/app/actions/signals";
 import {
   SIGNAL_TYPES,
@@ -300,6 +302,25 @@ function AgentCard({ agent }: { agent: SignalAgent }) {
       toast.error(e instanceof Error ? e.message : "couldn't update agent."),
   });
 
+  const runNow = useMutation({
+    mutationFn: async () => {
+      const r = await runAgentNowAction({ agentId: agent.id });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: (r) => {
+      toast.success(
+        r.inserted > 0
+          ? `pulled ${r.inserted} new hit${r.inserted === 1 ? "" : "s"} live.`
+          : "ran ... nothing new matched this pass.",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["signal-hits"] });
+      void queryClient.invalidateQueries({ queryKey: ["signal-agents"] });
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "couldn't run that agent."),
+  });
+
   const active = agent.status === "active";
 
   return (
@@ -333,24 +354,35 @@ function AgentCard({ agent }: { agent: SignalAgent }) {
         <span className="font-mono text-[10px] text-lunari-neutral-500">
           {agent.hitCount7d} hits · 7d
         </span>
-        <button
-          type="button"
-          onClick={() => toggle.mutate()}
-          disabled={toggle.isPending}
-          className="planetarium flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream disabled:opacity-50"
-        >
-          {active ? (
-            <>
-              <Pause className="h-3.5 w-3.5 stroke-[1.25]" />
-              <span>pause</span>
-            </>
-          ) : (
-            <>
-              <Play className="h-3.5 w-3.5 stroke-[1.25]" />
-              <span>resume</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => runNow.mutate()}
+            disabled={runNow.isPending}
+            className="planetarium flex items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-2 py-1 text-xs font-medium text-gen-accent hover:bg-gen-accent-soft disabled:opacity-50"
+          >
+            <Search className="h-3.5 w-3.5 stroke-[1.25]" />
+            <span>{runNow.isPending ? "scanning ..." : "run now"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => toggle.mutate()}
+            disabled={toggle.isPending}
+            className="planetarium flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream disabled:opacity-50"
+          >
+            {active ? (
+              <>
+                <Pause className="h-3.5 w-3.5 stroke-[1.25]" />
+                <span>pause</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-3.5 w-3.5 stroke-[1.25]" />
+                <span>resume</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -178,6 +178,53 @@ export async function listHitsForDryRun(limit = 200): Promise<SignalHitRow[]> {
   return ((data ?? []) as RawHitRow[]).map(mapHit);
 }
 
+export async function getAgent(agentId: string): Promise<SignalAgent | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_signal_agents")
+    .select(
+      "id, name, signal_type, icp, objective, ramp, score_threshold, status, last_ran_at, created_at",
+    )
+    .eq("id", agentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const a = data as {
+    id: string;
+    name: string;
+    signal_type: SignalType;
+    icp: Record<string, unknown> | null;
+    objective: Record<string, unknown> | null;
+    ramp: Record<string, unknown> | null;
+    score_threshold: number | string | null;
+    status: AgentStatus;
+    last_ran_at: string | null;
+    created_at: string;
+  };
+  return {
+    id: a.id,
+    name: a.name,
+    signalType: a.signal_type,
+    icp: a.icp ?? {},
+    objective: a.objective ?? {},
+    ramp: a.ramp ?? {},
+    scoreThreshold: Number(a.score_threshold ?? 0.5),
+    status: a.status,
+    lastRanAt: a.last_ran_at,
+    createdAt: a.created_at,
+    hitCount7d: 0,
+  };
+}
+
+// stamp last_ran_at after a manual/cron run.
+export async function touchAgentRan(agentId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("gc_signal_agents")
+    .update({ last_ran_at: new Date().toISOString() })
+    .eq("id", agentId);
+}
+
 export async function createAgent(args: {
   name: string;
   signalType: SignalType;

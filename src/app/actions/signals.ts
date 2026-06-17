@@ -13,10 +13,15 @@ import {
   getAgentObjective,
   linkHitContact,
   revertHitClaim,
+  getAgent,
+  insertHit,
+  touchAgentRan,
   type SignalAgent,
   type SignalHitRow,
   type AgentStatus,
 } from "@/lib/supabase/signals";
+import { searchXSignals } from "@/lib/signals/ingest";
+import { scoreSignalHit } from "@/lib/signals/score";
 import {
   SIGNAL_TYPES,
   DISMISS_REASONS,
@@ -135,6 +140,79 @@ export async function dismissHitAction(raw: unknown): Promise<DismissResult> {
     return { ok: true };
   } catch {
     return { ok: false, error: "couldn't dismiss that ... try again." };
+  }
+}
+
+// ---- run an agent now (live X ingestion) -----------------------------------
+
+const RunNowInput = z.object({
+  agentId: z.string().uuid(),
+  query: z.string().max(300).optional(),
+});
+
+export type RunAgentResult =
+  | { ok: true; found: number; inserted: number; query: string }
+  | { ok: false; error: string };
+
+// pull live X hits for an agent through the key pool, score each (deepseek-flash,
+// flame-floor fallback), insert (deduped on source_id). the realtime feed lights
+// up as the rows land. manual trigger for v1; the cron + apify webhook reuse this
+// same path later.
+export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
+  const user = await requireUser();
+  if (!user) return { ok: false, error: "sign in to run an agent ..." };
+
+  const parsed = RunNowInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "that agent didn't look right ... refresh." };
+  }
+
+  try {
+    const agent = await getAgent(parsed.data.agentId);
+    if (!agent) return { ok: false, error: "couldn't find that agent ..." };
+
+    const nowIso = new Date().toISOString();
+    const { raws, query, error } = await searchXSignals({
+      signalType: agent.signalType,
+      icp: agent.icp,
+      query: parsed.data.query,
+      max: 20,
+      nowIso,
+    });
+    if (error) return { ok: false, error: `apify ... ${error}` };
+
+    // score in parallel (the slow part); a model outage falls to the flame floor
+    // per hit, so this never strands.
+    const scored = await Promise.all(
+      raws.map(async (r) => ({
+        r,
+        s: await scoreSignalHit({
+          signalType: agent.signalType,
+          raw: r,
+          icp: agent.icp,
+        }),
+      })),
+    );
+
+    let inserted = 0;
+    for (const { r, s } of scored) {
+      const id = await insertHit({
+        agentId: agent.id,
+        signalType: agent.signalType,
+        raw: r,
+        aiScore: s.score,
+        aiRationale: `${s.rationale} [${s.scoredBy}]`,
+        detectedAt: typeof r.detected_at === "string" ? r.detected_at : nowIso,
+      });
+      if (id) inserted += 1;
+    }
+
+    await touchAgentRan(agent.id);
+    revalidatePath("/signals");
+    return { ok: true, found: raws.length, inserted, query };
+  } catch (err) {
+    console.error("[signals] run agent failed", err);
+    return { ok: false, error: "couldn't run that agent ... try again." };
   }
 }
 
