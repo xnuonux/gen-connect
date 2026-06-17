@@ -21,6 +21,7 @@ export const PAID_DAILY_CEILING_CENTS = Number(
 // a flat per-call fiction (one find_leads call can hit up to 12 hunter requests).
 export const TOOL_COST_CENTS = {
   find_leads: 2, // per hunter domain-search request
+  find_leads_by_icp: 10, // per 100 leads (apify ~$1/1k, 100-lead min charge/run)
   verify_emails: 1, // per email verified (~$0.001-0.004)
   enrich_contact: 30, // path-A $0.30/lead ceiling (per contact)
   bulk_enrich: 30, // per contact

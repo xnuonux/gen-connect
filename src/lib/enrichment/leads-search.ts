@@ -96,6 +96,116 @@ export async function findLeadsByDomains(args: {
   return { leads: deduped, notes };
 }
 
+// ----- apify ICP discovery (boneswill/leads-generator, bulk mode) ----------
+// hunter finds by domain (you know the company); this finds by ICP (title +
+// location + industry) ... apollo-style cold discovery, no domains needed. the
+// actor charges a 100-lead minimum per run, so we floor at 100 and cap the
+// upper bound so the agent can never trigger a 30k bill by accident. emails ride
+// in the dataset; verify_emails is still the real gate before load.
+export type IcpLeadQuery = {
+  titles?: string[];
+  countries?: string[];
+  industries?: string[];
+  employeeSizes?: string[];
+  seniority?: string[];
+  limit?: number;
+};
+
+function s(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function mapApifyLeadRow(r: Record<string, unknown>): FoundLead | null {
+  const email = s(r.email);
+  if (!email) return null; // no email = useless for cold outreach
+  const org = (r.organization ?? {}) as Record<string, unknown>;
+  const first = s(r.first_name) || s(r.firstName);
+  const last = s(r.last_name) || s(r.lastName);
+  const name = s(r.name) || [first, last].filter(Boolean).join(" ") || email;
+  const parts = name.split(/\s+/).filter(Boolean);
+  return {
+    name,
+    first_name: first || parts[0] || "",
+    last_name: last || parts.slice(1).join(" ") || "",
+    title: s(r.title) || s(r.headline),
+    email,
+    // apify/apollo rows are not hunter-confidence-scored; default mid-high and
+    // let verify_emails be the truth before anything loads.
+    confidence: 80,
+    company_name: s(org.name) || s(r.organization_name) || null,
+    company_domain: s(org.primary_domain) || s(org.website_url) || "",
+  };
+}
+
+export async function findLeadsByIcp(
+  q: IcpLeadQuery,
+): Promise<{ leads: FoundLead[]; notes: string[]; fetched: number }> {
+  const token = process.env.APIFY_TOKEN;
+  const actor = process.env.APIFY_LEADS_ACTOR;
+  if (!token) return { leads: [], notes: ["apify not configured"], fetched: 0 };
+  if (!actor) {
+    return { leads: [], notes: ["no actor ... set APIFY_LEADS_ACTOR"], fetched: 0 };
+  }
+  if (!q.titles?.length && !q.industries?.length && !q.countries?.length) {
+    return {
+      leads: [],
+      notes: ["need at least a title, industry, or country filter"],
+      fetched: 0,
+    };
+  }
+
+  const totalResults = Math.min(Math.max(q.limit ?? 100, 100), 500);
+  const input: Record<string, unknown> = {
+    includeEmails: true,
+    contactEmailStatus: "verified",
+    totalResults,
+  };
+  if (q.titles?.length) input.personTitle = q.titles;
+  if (q.countries?.length) input.personCountry = q.countries;
+  if (q.industries?.length) input.industry = q.industries;
+  if (q.employeeSizes?.length) input.companyEmployeeSize = q.employeeSizes;
+  if (q.seniority?.length) input.seniority = q.seniority;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/${encodeURIComponent(actor)}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+        signal: ctrl.signal,
+      },
+    );
+    if (!res.ok) throw new Error(`apify http ${res.status}`);
+    const dataset = (await res.json()) as unknown;
+    const rows = Array.isArray(dataset)
+      ? (dataset as Record<string, unknown>[])
+      : [];
+
+    const seen = new Set<string>();
+    const leads: FoundLead[] = [];
+    for (const r of rows) {
+      const lead = mapApifyLeadRow(r);
+      if (!lead) continue;
+      const k = lead.email.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      leads.push(lead);
+    }
+    return { leads, notes: [], fetched: rows.length };
+  } catch (e) {
+    return {
+      leads: [],
+      notes: [e instanceof Error ? e.message : "apify failed"],
+      fetched: 0,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type VerifyResult = { email: string; status: string; verified: boolean };
 
 // verify a batch of emails through the email_verifier adapter (millionverifier

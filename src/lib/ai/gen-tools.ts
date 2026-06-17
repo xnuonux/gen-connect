@@ -1,6 +1,10 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { findLeadsByDomains, verifyEmails } from "@/lib/enrichment/leads-search";
+import {
+  findLeadsByDomains,
+  findLeadsByIcp,
+  verifyEmails,
+} from "@/lib/enrichment/leads-search";
 import { loadLeads, type LeadInput } from "@/lib/supabase/leads";
 import {
   listContactsFiltered,
@@ -89,6 +93,63 @@ export function buildGenTools(userId: string, tier: Tier) {
         });
         return {
           count: leads.length,
+          notes,
+          leads: leads.map((l) => ({
+            name: l.name,
+            title: l.title,
+            email: l.email,
+            company_name: l.company_name,
+            company_domain: l.company_domain,
+            confidence: l.confidence,
+          })),
+        };
+      },
+    }),
+
+    find_leads_by_icp: tool({
+      description:
+        "find real leads by ICP via apify (boneswill leads-generator) ... title + country + industry, NO domains needed. use this when you do NOT have specific company domains but DO have a persona (e.g. 'heads of growth at fintechs in the US'). apollo-grade discovery with emails. apify charges a 100-lead minimum per run, so limit floors at 100. does NOT load ... show the candidates, get a yes, then verify_emails + load_contacts. PAID action.",
+      inputSchema: z.object({
+        titles: z
+          .array(z.string())
+          .optional()
+          .describe("job titles, e.g. ['head of growth','vp marketing']"),
+        countries: z
+          .array(z.string())
+          .optional()
+          .describe("person countries, e.g. ['United States']"),
+        industries: z
+          .array(z.string())
+          .optional()
+          .describe("industries, e.g. ['fintech','b2b saas']"),
+        limit: z
+          .number()
+          .int()
+          .min(100)
+          .max(500)
+          .optional()
+          .describe("leads to fetch (100 min ... apify bills for 100 even if fewer match)"),
+      }),
+      execute: async ({ titles, countries, industries, limit }) => {
+        const want = Math.min(Math.max(limit ?? 100, 100), 500);
+        // apify bills per ~100 leads; the ledger tracks the real run size.
+        const units = Math.ceil(want / 100);
+        const gate = await reserveCost(
+          tier,
+          "find_leads_by_icp",
+          TOOL_COST_CENTS.find_leads_by_icp * units,
+          units,
+        );
+        if (gate) return gate;
+        const { leads, notes, fetched } = await findLeadsByIcp({
+          titles,
+          countries,
+          industries,
+          limit: want,
+        });
+        return {
+          count: leads.length,
+          fetched,
           notes,
           leads: leads.map((l) => ({
             name: l.name,
