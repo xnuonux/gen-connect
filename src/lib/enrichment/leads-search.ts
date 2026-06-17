@@ -116,25 +116,43 @@ function s(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+// strip a website url down to a bare domain (matches hunter's domain shape).
+function domainOf(url: string): string {
+  if (!url) return "";
+  const bare = url.replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  return (bare.split(/[/?#]/)[0] ?? "").trim();
+}
+
+// the boneswill/leads-generator dataset shape, verified against a live run:
+// firstName, lastName, fullName, position, linkedinUrl, email, organizationName,
+// organizationWebsite, organizationIndustry, state, country, seniority, ...
+// the old snake_case / nested-organization fallbacks stay as a safety net in
+// case a different leads actor is plugged into APIFY_LEADS_ACTOR.
 function mapApifyLeadRow(r: Record<string, unknown>): FoundLead | null {
   const email = s(r.email);
   if (!email) return null; // no email = useless for cold outreach
   const org = (r.organization ?? {}) as Record<string, unknown>;
-  const first = s(r.first_name) || s(r.firstName);
-  const last = s(r.last_name) || s(r.lastName);
-  const name = s(r.name) || [first, last].filter(Boolean).join(" ") || email;
+  const first = s(r.firstName) || s(r.first_name);
+  const last = s(r.lastName) || s(r.last_name);
+  const name =
+    s(r.fullName) || s(r.name) || [first, last].filter(Boolean).join(" ") || email;
   const parts = name.split(/\s+/).filter(Boolean);
   return {
     name,
     first_name: first || parts[0] || "",
     last_name: last || parts.slice(1).join(" ") || "",
-    title: s(r.title) || s(r.headline),
+    title: s(r.position) || s(r.title) || s(r.headline),
     email,
     // apify/apollo rows are not hunter-confidence-scored; default mid-high and
     // let verify_emails be the truth before anything loads.
     confidence: 80,
-    company_name: s(org.name) || s(r.organization_name) || null,
-    company_domain: s(org.primary_domain) || s(org.website_url) || "",
+    company_name:
+      s(r.organizationName) || s(org.name) || s(r.organization_name) || null,
+    company_domain:
+      domainOf(s(r.organizationWebsite)) ||
+      s(org.primary_domain) ||
+      s(org.website_url) ||
+      "",
   };
 }
 

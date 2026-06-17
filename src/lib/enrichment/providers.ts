@@ -204,18 +204,25 @@ const apifyLeadsFinder: EnrichmentProvider = {
     );
     if (!run.ok) return errored("apify_leads_finder", run.error);
 
+    // boneswill/leads-generator dataset shape (verified live): flat camelCase ...
+    // position, linkedinUrl, organizationName/Website/Industry, state, country.
+    // snake_case + nested-org fallbacks stay for any other leads actor.
     const r = (run.items[0] ?? {}) as Record<string, unknown>;
     const org = (r.organization ?? {}) as Record<string, unknown>;
-    const city = str(r.city);
+    const state = str(r.state) ?? str(r.city);
     const country = str(r.country);
+    const website = str(r.organizationWebsite);
+    const domain = website
+      ? website.replace(/^https?:\/\//i, "").replace(/^www\./i, "").split(/[/?#]/)[0]
+      : (str(org.primary_domain) ?? str(org.website_url));
     const fields: EnrichedFields = {
       email: str(r.email),
-      title: str(r.title) ?? str(r.headline),
-      linkedin_url: str(r.linkedin_url),
-      company_name: str(org.name) ?? str(r.organization_name),
-      company_domain: str(org.primary_domain) ?? str(org.website_url),
-      industry: str(org.industry) ?? str(r.industry),
-      location: city && country ? `${city}, ${country}` : str(r.location),
+      title: str(r.position) ?? str(r.title) ?? str(r.headline),
+      linkedin_url: str(r.linkedinUrl) ?? str(r.linkedin_url),
+      company_name: str(r.organizationName) ?? str(org.name) ?? str(r.organization_name),
+      company_domain: domain,
+      industry: str(r.organizationIndustry) ?? str(org.industry) ?? str(r.industry),
+      location: state && country ? `${state}, ${country}` : (country ?? str(r.location)),
     };
     return ok("apify_leads_finder", fields, { found: run.items.length });
   },
