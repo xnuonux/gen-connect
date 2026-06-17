@@ -60,4 +60,72 @@
     transition-duration: var(--motion-duration);
     transition-timing-function: var(--motion-easing);
   }
+
+  /* staggered entrance ... the design system promises 30-60ms follow-through.
+     keyed elements play this once on mount, never on re-render. pair with an
+     inline animation-delay for the stagger. */
+  .reveal-up {
+    animation: gen-reveal-up var(--motion-duration) var(--motion-easing) both;
+  }
+}
+
+@keyframes gen-reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* the win celebration ... a burgundy core that blooms to a single gold ring,
+   the one allowed gold-per-screen moment. opacity + transform only (GPU). */
+@keyframes gen-win-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  25% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.3);
+  }
+}
+
+@keyframes gen-win-quote {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  18%,
+  78% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.gen-win-ring {
+  animation: gen-win-ring 1.5s var(--motion-easing) forwards;
+}
+
+.gen-win-quote {
+  animation: gen-win-quote 1.9s var(--motion-easing) forwards;
+}
+
+/* reduced motion: skip the entrance + celebration entirely, never leave an
+   element stranded at opacity 0 during a zeroed-duration delay. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal-up,
+  .gen-win-ring,
+  .gen-win-quote {
+    animation: none;
+  }
 }

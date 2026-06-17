@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { KanbanColumn } from "./KanbanColumn";
 import { ContactCard } from "@/components/shared/ContactCard";
 import { ContactDrawer } from "@/components/shared/ContactDrawer";
+import { WinCelebration } from "@/components/shared/WinCelebration";
 import { fetchContacts, moveContactToStage } from "@/app/actions/contacts";
 import {
   isKanbanStage,
@@ -61,6 +62,8 @@ export function PipelineKanban({
   const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // the gold-pulse moment ... fires when a card lands in booked or closed.
+  const [win, setWin] = useState<string | null>(null);
 
   // the board's source of truth. seeded by the server fetch, so the first
   // paint is real data ... no loading flash.
@@ -93,6 +96,11 @@ export function PipelineKanban({
         ),
       );
       return { previous };
+    },
+    onSuccess: (_data, vars) => {
+      // the win moment ... a drag into booked or closed earns the gold pulse.
+      if (vars.stage === "booked") setWin("booked. lock the meeting.");
+      else if (vars.stage === "closed") setWin("closed. thats the whole game.");
     },
     onError: (error, _vars, context) => {
       if (context?.previous) {
@@ -151,10 +159,11 @@ export function PipelineKanban({
         onDragCancel={() => setActiveId(null)}
       >
         <div className="flex h-full gap-4 overflow-x-auto overflow-y-hidden pb-2">
-          {KANBAN_STAGES.map((stage) => (
+          {KANBAN_STAGES.map((stage, i) => (
             <KanbanColumn
               key={stage}
               stage={stage}
+              index={i}
               contacts={board[stage]}
               selectedId={selectedId}
               onSelect={setSelectedId}
@@ -174,6 +183,12 @@ export function PipelineKanban({
       {/* the side drawer ... opens on card select, lazy-loads the full contact
           + the resolved presence graph. close clears the selection. */}
       <ContactDrawer contactId={selectedId} onClose={() => setSelectedId(null)} />
+
+      <WinCelebration
+        show={win !== null}
+        quote={win ?? undefined}
+        onDone={() => setWin(null)}
+      />
     </div>
   );
 }

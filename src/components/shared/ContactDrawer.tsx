@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { X } from "lucide-react";
 import { ContactDrawerPanel } from "@/components/shared/ContactDrawerPanel";
+import { WinCelebration } from "@/components/shared/WinCelebration";
 import { fetchContactDetail } from "@/app/actions/contacts";
 import { resolveFootprintAction } from "@/app/actions/footprint";
 import { logOutcomeAction } from "@/app/actions/outcomes";
@@ -25,6 +26,8 @@ export function ContactDrawer({
   const queryClient = useQueryClient();
   const router = useRouter();
   const open = contactId !== null;
+  // the gold-pulse moment ... null when idle, the quote line when a win lands.
+  const [celebrate, setCelebrate] = useState<string | null>(null);
 
   // esc closes ... matches the design-system drawer contract.
   useEffect(() => {
@@ -82,6 +85,9 @@ export function ContactDrawer({
       toast.success(
         `that's the move ... $${Math.round(input.dollarValue).toLocaleString("en-US")} on the board.`,
       );
+      setCelebrate(
+        `$${Math.round(input.dollarValue).toLocaleString("en-US")} on the board.`,
+      );
       router.refresh();
       void queryClient.invalidateQueries({
         queryKey: ["contact-detail", contactId],
@@ -134,14 +140,21 @@ export function ContactDrawer({
   }
 
   return (
-    <ContactDrawerPanel
-      detail={detail}
-      resolving={resolve.isPending}
-      logging={logWin.isPending}
-      onResolveFootprint={() => resolve.mutate()}
-      onLogWin={(input) => logWin.mutate(input)}
-      onClose={onClose}
-      draftHref={`/draft/${detail.id}`}
-    />
+    <>
+      <ContactDrawerPanel
+        detail={detail}
+        resolving={resolve.isPending}
+        logging={logWin.isPending}
+        onResolveFootprint={() => resolve.mutate()}
+        onLogWin={(input) => logWin.mutate(input)}
+        onClose={onClose}
+        draftHref={`/draft/${detail.id}`}
+      />
+      <WinCelebration
+        show={celebrate !== null}
+        quote={celebrate ?? undefined}
+        onDone={() => setCelebrate(null)}
+      />
+    </>
   );
 }

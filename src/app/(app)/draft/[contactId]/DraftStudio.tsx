@@ -7,6 +7,7 @@ import { Sparkles, RefreshCw, Check, Copy, ArrowLeft, Search } from "lucide-reac
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   generateDraftAction,
   overrideAngleAction,
@@ -156,7 +157,11 @@ export function DraftStudio({
       />
 
       {!draft ? (
-        <EmptyState busy={busy} error={error} onGenerate={onGenerate} />
+        busy ? (
+          <GeneratingAngles />
+        ) : (
+          <EmptyState busy={busy} error={error} onGenerate={onGenerate} />
+        )
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
@@ -176,10 +181,11 @@ export function DraftStudio({
             </button>
           </div>
 
-          {ordered.map((angle) => (
+          {ordered.map((angle, i) => (
             <AngleCard
               key={angle.id}
               angle={angle}
+              index={i}
               picked={picked === angle.id}
               onPick={() => onPick(angle)}
             />
@@ -262,6 +268,36 @@ function EnrichStrip({
   );
 }
 
+// the 8-12s opus wait ... a skeleton of the five cards beats a spinner. matches
+// the design-system "skeleton, not spinner" rule + the structured-output latency.
+function GeneratingAngles() {
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-live="polite">
+      <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
+        writing five angles, then judging them ...
+      </span>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div
+          key={i}
+          style={{ animationDelay: `${i * 55}ms` }}
+          className="reveal-up rounded-md border border-lunari-surface-elevated bg-lunari-surface p-4"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-3 w-10" />
+          </div>
+          <Skeleton className="h-4 w-2/3" />
+          <div className="mt-2 space-y-1.5">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-11/12" />
+            <Skeleton className="h-3 w-4/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EmptyState({
   busy,
   error,
@@ -310,10 +346,12 @@ function EmptyState({
 
 function AngleCard({
   angle,
+  index,
   picked,
   onPick,
 }: {
   angle: DraftAngleRecord;
+  index: number;
   picked: boolean;
   onPick: () => void;
 }) {
@@ -330,8 +368,9 @@ function AngleCard({
 
   return (
     <div
+      style={{ animationDelay: `${index * 55}ms` }}
       className={cn(
-        "planetarium rounded-md border bg-lunari-surface p-4",
+        "reveal-up planetarium rounded-md border bg-lunari-surface p-4",
         picked
           ? "border-gen-accent ring-1 ring-gen-accent"
           : "border-lunari-surface-elevated",

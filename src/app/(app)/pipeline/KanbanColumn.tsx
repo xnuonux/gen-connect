@@ -10,6 +10,7 @@ import type { Contact, KanbanStage } from "@/lib/types/contact";
 
 type KanbanColumnProps = {
   stage: KanbanStage;
+  index: number;
   contacts: Contact[];
   selectedId: string | null;
   onSelect: (id: string) => void;
@@ -17,9 +18,10 @@ type KanbanColumnProps = {
 
 // one pipeline stage. the body is the drop target ... a card released here
 // moves to this stage. the body stays droppable even when empty, so cold can
-// catch its first lead.
+// catch its first lead. the column reveals on mount with a per-index stagger.
 export function KanbanColumn({
   stage,
+  index,
   contacts,
   selectedId,
   onSelect,
@@ -27,7 +29,10 @@ export function KanbanColumn({
   const { setNodeRef, isOver } = useDroppable({ id: stage });
 
   return (
-    <section className="flex h-full w-[300px] shrink-0 flex-col">
+    <section
+      className="reveal-up flex h-full w-[300px] shrink-0 flex-col"
+      style={{ animationDelay: `${index * 45}ms` }}
+    >
       <div className="flex items-center gap-2 px-1.5 pb-3">
         <StageChip stage={stage} />
         <Badge>{contacts.length}</Badge>
