@@ -29,9 +29,15 @@ import {
   Square,
   Play,
   Trash2,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import {
+  renderSample,
+  spintaxCombos,
+  SLOT_TOKENS,
+} from "@/lib/sequences/spintax";
 import {
   fetchSequences,
   getSequenceAction,
@@ -716,6 +722,223 @@ function BranchFields({
   );
 }
 
+type Variant = { id: string; body: string; weight: number };
+
+// the send inspector ... where the wedge lives. spintax {{a|b}}, {signal.*}/
+// {contact.*}/{voice.*} slot tokens (click to insert at the cursor), a live preview
+// resolving both with sample values, and up to three weighted a/b body variants.
+function SendFields({
+  data,
+  onChange,
+}: {
+  data: Record<string, unknown>;
+  onChange: (patch: Record<string, unknown>) => void;
+}) {
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const channel = readStr(data, "channel") || "email";
+  const subject = readStr(data, "subject");
+  const body = readStr(data, "body");
+
+  const variants: Variant[] = Array.isArray(data.variants)
+    ? (data.variants as unknown[]).map((v, i) => {
+        const o = (v ?? {}) as Record<string, unknown>;
+        return {
+          id: typeof o.id === "string" ? o.id : `idx-${i}`,
+          body: typeof o.body === "string" ? o.body : "",
+          weight: typeof o.weight === "number" ? o.weight : 0,
+        };
+      })
+    : [];
+  const extraSum = variants.reduce((a, v) => a + v.weight, 0);
+  const primaryWeight = Math.max(0, 100 - extraSum);
+
+  function insertToken(tok: string) {
+    const el = bodyRef.current;
+    if (!el) {
+      onChange({ body: body + tok });
+      return;
+    }
+    const start = el.selectionStart ?? body.length;
+    const end = el.selectionEnd ?? body.length;
+    onChange({ body: body.slice(0, start) + tok + body.slice(end) });
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + tok.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
+  function addVariant() {
+    if (variants.length >= 2) return;
+    const id = `v-${crypto.randomUUID().slice(0, 6)}`;
+    onChange({ variants: [...variants, { id, body: "", weight: 0 }] });
+  }
+  function updateVariant(i: number, patch: Partial<Omit<Variant, "id">>) {
+    onChange({
+      variants: variants.map((v, j) => (j === i ? { ...v, ...patch } : v)),
+    });
+  }
+  function removeVariant(i: number) {
+    onChange({ variants: variants.filter((_, j) => j !== i) });
+  }
+
+  const previews = body.trim() ? [0, 1, 2].map((s) => renderSample(body, s)) : [];
+  const combos = spintaxCombos(body);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <FieldLabel>channel</FieldLabel>
+        <select
+          value={channel}
+          onChange={(e) => onChange({ channel: e.target.value })}
+          className={INPUT_CLS}
+        >
+          <option value="email" className="bg-lunari-surface">
+            email
+          </option>
+          <option value="linkedin_dm" className="bg-lunari-surface">
+            linkedin dm
+          </option>
+          <option value="twitter_dm" className="bg-lunari-surface">
+            twitter dm
+          </option>
+        </select>
+      </div>
+      <div>
+        <FieldLabel>subject</FieldLabel>
+        <input
+          value={subject}
+          onChange={(e) => onChange({ subject: e.target.value })}
+          placeholder="quick one about {signal.hook}"
+          className={INPUT_CLS}
+        />
+      </div>
+      <div>
+        <FieldLabel>body</FieldLabel>
+        <textarea
+          ref={bodyRef}
+          value={body}
+          onChange={(e) => onChange({ body: e.target.value })}
+          rows={7}
+          placeholder="saw {signal.hook} ... write the first touch in your voice. use {{a|b}} for spintax."
+          className={cn(INPUT_CLS, "resize-none leading-relaxed")}
+        />
+      </div>
+
+      {/* slot tokens ... click to insert at the cursor. the signal IS the message. */}
+      <div>
+        <FieldLabel>insert a slot</FieldLabel>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {SLOT_TOKENS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => insertToken(t)}
+              className="planetarium rounded-md border border-lunari-surface-elevated bg-lunari-black px-1.5 py-1 font-mono text-[10px] text-lunari-cream/80 hover:bg-lunari-surface-elevated hover:text-lunari-cream"
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* live preview ... spintax expanded + slots filled with sample values. */}
+      {previews.length > 0 ? (
+        <div className="rounded-md border border-lunari-surface-elevated bg-lunari-black/40 p-2.5">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-lunari-neutral-500">
+              preview
+            </span>
+            {combos > 1 ? (
+              <span className="font-mono text-[9px] text-lunari-gold">
+                {combos} variations
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 space-y-1.5">
+            {previews.map((p, i) => (
+              <p
+                key={i}
+                className="whitespace-pre-wrap text-[11px] leading-relaxed text-lunari-cream/70"
+              >
+                {p}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* a/b variants ... up to three weighted bodies. */}
+      <div>
+        <div className="flex items-center justify-between">
+          <FieldLabel>variants</FieldLabel>
+          <span
+            className={cn(
+              "font-mono text-[10px] tabular-nums",
+              extraSum <= 100 ? "text-lunari-neutral-400" : "text-lunari-gold",
+            )}
+          >
+            a {primaryWeight}%
+            {variants.map((v, i) => ` · ${String.fromCharCode(98 + i)} ${v.weight}%`).join("")}
+          </span>
+        </div>
+        <div className="mt-1 space-y-2">
+          {variants.map((v, i) => (
+            <div key={v.id} className="rounded-md border border-lunari-surface-elevated p-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-lunari-neutral-500">
+                  variant {String.fromCharCode(98 + i)}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={v.weight}
+                    onChange={(e) =>
+                      updateVariant(i, {
+                        weight: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
+                      })
+                    }
+                    aria-label={`variant ${String.fromCharCode(98 + i)} weight`}
+                    className="w-14 rounded-md border border-lunari-surface-elevated bg-lunari-black px-1.5 py-1 text-xs text-lunari-cream focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeVariant(i)}
+                    aria-label="remove variant"
+                    className="planetarium flex h-6 w-6 items-center justify-center rounded-md text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-crimson"
+                  >
+                    <X className="h-3.5 w-3.5 stroke-[1.25]" />
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={v.body}
+                onChange={(e) => updateVariant(i, { body: e.target.value })}
+                rows={3}
+                placeholder="an alternate take ... same voice, different angle."
+                className={cn(INPUT_CLS, "mt-1 resize-none")}
+              />
+            </div>
+          ))}
+          {variants.length < 2 ? (
+            <button
+              type="button"
+              onClick={addVariant}
+              className="planetarium flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-lunari-surface-elevated px-2 py-1.5 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream"
+            >
+              <Plus className="h-3.5 w-3.5 stroke-[1.25]" />
+              <span>add variant</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NodeInspector({
   node,
   onChange,
@@ -744,47 +967,7 @@ function NodeInspector({
           </p>
         ) : null}
 
-        {kind === "send" ? (
-          <>
-            <div>
-              <FieldLabel>channel</FieldLabel>
-              <select
-                value={readStr(data, "channel") || "email"}
-                onChange={(e) => onChange({ channel: e.target.value })}
-                className={INPUT_CLS}
-              >
-                <option value="email" className="bg-lunari-surface">
-                  email
-                </option>
-                <option value="linkedin_dm" className="bg-lunari-surface">
-                  linkedin dm
-                </option>
-                <option value="twitter_dm" className="bg-lunari-surface">
-                  twitter dm
-                </option>
-              </select>
-            </div>
-            <div>
-              <FieldLabel>subject</FieldLabel>
-              <input
-                value={readStr(data, "subject")}
-                onChange={(e) => onChange({ subject: e.target.value })}
-                placeholder="quick one about your launch"
-                className={INPUT_CLS}
-              />
-            </div>
-            <div>
-              <FieldLabel>body</FieldLabel>
-              <textarea
-                value={readStr(data, "body")}
-                onChange={(e) => onChange({ body: e.target.value })}
-                rows={7}
-                placeholder="saw the move ... write the first touch in your voice. spintax + variants land next."
-                className={cn(INPUT_CLS, "resize-none leading-relaxed")}
-              />
-            </div>
-          </>
-        ) : null}
+        {kind === "send" ? <SendFields data={data} onChange={onChange} /> : null}
 
         {kind === "wait" ? (
           <div className="flex gap-2">
