@@ -77,6 +77,38 @@ export async function listTriggers(): Promise<Trigger[]> {
   return ((data ?? []) as RawTrigger[]).map(mapTrigger);
 }
 
+// the active signal-kind triggers, highest priority first ... the auto-fire path
+// evaluates a freshly-ingested hit against these.
+export async function listActiveSignalTriggers(): Promise<Trigger[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_triggers")
+    .select(COLS)
+    .eq("kind", "signal")
+    .eq("status", "active")
+    .order("priority", { ascending: true })
+    .limit(50);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as RawTrigger[]).map(mapTrigger);
+}
+
+// bump a trigger's fire tally + stamp last_fired_at. read-then-write ... a tiny
+// race on the count is fine for a tally, and RLS scopes it to the owner.
+export async function incrementTriggerFire(triggerId: string): Promise<void> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("gc_triggers")
+    .select("fire_count")
+    .eq("id", triggerId)
+    .maybeSingle();
+  const next = (((data as { fire_count: number | null } | null)?.fire_count) ?? 0) + 1;
+  const { error } = await supabase
+    .from("gc_triggers")
+    .update({ fire_count: next, last_fired_at: new Date().toISOString() })
+    .eq("id", triggerId);
+  if (error) throw new Error(error.message);
+}
+
 export async function createTrigger(args: {
   name: string;
   kind: TriggerKind;

@@ -309,13 +309,17 @@ function AgentCard({ agent }: { agent: SignalAgent }) {
       return r;
     },
     onSuccess: (r) => {
-      toast.success(
+      const base =
         r.inserted > 0
-          ? `pulled ${r.inserted} new hit${r.inserted === 1 ? "" : "s"} live.`
-          : "ran ... nothing new matched this pass.",
-      );
+          ? `${r.inserted} new hit${r.inserted === 1 ? "" : "s"} live`
+          : "no new hits this pass";
+      const fire = r.fired > 0 ? ` ... ${r.fired} auto-routed to the pipeline` : "";
+      toast.success(`${base}${fire}.`);
       void queryClient.invalidateQueries({ queryKey: ["signal-hits"] });
       void queryClient.invalidateQueries({ queryKey: ["signal-agents"] });
+      if (r.fired > 0) {
+        void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      }
     },
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "couldn't run that agent."),

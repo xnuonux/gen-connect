@@ -22,11 +22,19 @@ import {
 } from "@/lib/supabase/signals";
 import { searchXSignals } from "@/lib/signals/ingest";
 import { scoreSignalHit } from "@/lib/signals/score";
+import { evaluateTrigger } from "@/lib/triggers/evaluate";
+import {
+  listActiveSignalTriggers,
+  incrementTriggerFire,
+} from "@/lib/supabase/triggers";
 import {
   SIGNAL_TYPES,
   DISMISS_REASONS,
   hookFromHit,
+  type SignalType,
 } from "@/lib/types/signal";
+
+type Db = Awaited<ReturnType<typeof createClient>>;
 
 async function requireUser() {
   const supabase = await createClient();
@@ -151,7 +159,7 @@ const RunNowInput = z.object({
 });
 
 export type RunAgentResult =
-  | { ok: true; found: number; inserted: number; query: string }
+  | { ok: true; found: number; inserted: number; fired: number; query: string }
   | { ok: false; error: string };
 
 // pull live X hits for an agent through the key pool, score each (deepseek-flash,
@@ -195,6 +203,11 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
     );
 
     let inserted = 0;
+    const fresh: Array<{
+      hitId: string;
+      r: Record<string, unknown>;
+      score: number;
+    }> = [];
     for (const { r, s } of scored) {
       const id = await insertHit({
         agentId: agent.id,
@@ -204,12 +217,64 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
         aiRationale: `${s.rationale} [${s.scoredBy}]`,
         detectedAt: typeof r.detected_at === "string" ? r.detected_at : nowIso,
       });
-      if (id) inserted += 1;
+      // a null id = deduped (already seen); only fresh hits are fire candidates.
+      if (id) {
+        inserted += 1;
+        fresh.push({ hitId: id, r, score: s.score });
+      }
+    }
+
+    // auto-fire ... the live half of the rules engine (un-orphans evaluateTrigger
+    // beyond the dry run). each fresh hit is evaluated against the user's ACTIVE
+    // signal triggers; the first match atomically claims the hit + pulls it into
+    // the pipeline as a sourced contact (provenance: source_signal_id +
+    // source_trigger_id) + bumps the trigger. NO draft generation here ... that
+    // stays a deliberate, costed step, so auto-fire can never run away on spend.
+    let fired = 0;
+    const triggers = await listActiveSignalTriggers();
+    if (triggers.length > 0 && fresh.length > 0) {
+      const objective = await getAgentObjective(agent.id);
+      const supabase = await createClient();
+      const fireNow = Date.now();
+      for (const f of fresh) {
+        const match = triggers.find((t) =>
+          evaluateTrigger(
+            t.condition,
+            {
+              signalType: agent.signalType,
+              raw: f.r,
+              aiScore: f.score,
+              detectedAt:
+                typeof f.r.detected_at === "string" ? f.r.detected_at : nowIso,
+            },
+            null,
+            fireNow,
+          ),
+        );
+        if (!match) continue;
+        const claim = await claimHitForDraft(f.hitId);
+        if (!claim.claimed || !claim.hit) continue;
+        const cid = await createSourcedContact(
+          supabase,
+          user.id,
+          claim.hit,
+          objective,
+          match.id,
+        );
+        if (cid) {
+          await linkHitContact(f.hitId, cid);
+          await incrementTriggerFire(match.id);
+          fired += 1;
+        } else {
+          await revertHitClaim(f.hitId);
+        }
+      }
     }
 
     await touchAgentRan(agent.id);
     revalidatePath("/signals");
-    return { ok: true, found: raws.length, inserted, query };
+    revalidatePath("/pipeline");
+    return { ok: true, found: raws.length, inserted, fired, query };
   } catch (err) {
     console.error("[signals] run agent failed", err);
     return { ok: false, error: "couldn't run that agent ... try again." };
@@ -225,6 +290,39 @@ function nameFromHit(raw: Record<string, unknown>): string | null {
     str(raw.name) ||
     null
   );
+}
+
+// insert a signal-sourced contact with provenance (source_signal_id, + the
+// source_trigger_id when auto-fired) + the hook + agent objective folded into
+// enrichment_data. shared by the manual draft bridge + the auto-fire path.
+async function createSourcedContact(
+  supabase: Db,
+  userId: string,
+  hit: { id: string; signalType: SignalType; raw: Record<string, unknown> },
+  objective: Record<string, unknown>,
+  triggerId: string | null,
+): Promise<string | null> {
+  const r = hit.raw;
+  const hook = hookFromHit(hit.signalType, r);
+  const row: Record<string, unknown> = {
+    user_id: userId,
+    name: nameFromHit(r),
+    title: str(r.new_title) || str(r.title) || null,
+    email: str(r.email) || null,
+    linkedin_url: str(r.author_profile_url) || str(r.profile_url) || null,
+    stage: "cold",
+    source: "signal",
+    source_signal_id: hit.id,
+    enrichment_data: { ...r, hook, signal_type: hit.signalType, objective },
+  };
+  if (triggerId) row.source_trigger_id = triggerId;
+  const { data, error } = await supabase
+    .from("gc_contacts")
+    .insert(row)
+    .select("id")
+    .single();
+  if (error || !data) return null;
+  return data.id as string;
 }
 
 const DraftFromHitInput = z.object({ hitId: z.string().uuid() });
@@ -259,34 +357,19 @@ export async function draftFromHitAction(
     // the originating agent's objective is the 5-angle anchor ... carry it onto
     // the sourced contact so the drafter writes toward the real ask, not a guess.
     const objective = await getAgentObjective(hit.agentId);
-
     const supabase = await createClient();
-    const r = hit.raw;
-    const hook = hookFromHit(hit.signalType, r);
-
-    const { data: created, error } = await supabase
-      .from("gc_contacts")
-      .insert({
-        user_id: user.id,
-        name: nameFromHit(r),
-        title: str(r.new_title) || str(r.title) || null,
-        email: str(r.email) || null,
-        linkedin_url: str(r.author_profile_url) || str(r.profile_url) || null,
-        stage: "cold",
-        source: "signal",
-        source_signal_id: hit.id,
-        enrichment_data: { ...r, hook, signal_type: hit.signalType, objective },
-      })
-      .select("id")
-      .single();
-
-    if (error || !created) {
+    const contactId = await createSourcedContact(
+      supabase,
+      user.id,
+      hit,
+      objective,
+      null,
+    );
+    if (!contactId) {
       // let a retry re-claim cleanly rather than stranding an actioned hit.
       await revertHitClaim(hit.id);
-      throw new Error(error?.message ?? "contact insert failed");
+      throw new Error("contact insert failed");
     }
-
-    const contactId = created.id as string;
     await linkHitContact(hit.id, contactId);
     revalidatePath("/signals");
     revalidatePath("/pipeline");
