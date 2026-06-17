@@ -28,6 +28,16 @@ export function ContactDrawer({
   const open = contactId !== null;
   // the gold-pulse moment ... null when idle, the quote line when a win lands.
   const [celebrate, setCelebrate] = useState<string | null>(null);
+  // reset any pending celebration the instant the drawer switches contact or
+  // closes. the early-return below can unmount WinCelebration before its onDone
+  // timer fires, so without this a stale quote would replay on the next open.
+  // render-phase reset (the documented "adjust state on prop change" pattern),
+  // not an effect ... avoids the set-state-in-effect rule + the extra frame.
+  const [lastContactId, setLastContactId] = useState(contactId);
+  if (contactId !== lastContactId) {
+    setLastContactId(contactId);
+    setCelebrate(null);
+  }
 
   // esc closes ... matches the design-system drawer contract.
   useEffect(() => {

@@ -69,7 +69,9 @@ export async function listThreads(): Promise<UniboxThread[]> {
       .select("thread_id, body, direction, sent_at")
       .in("thread_id", ids)
       .order("sent_at", { ascending: false })
-      .limit(600);
+      // scale the window to the thread count so a few chatty threads cannot
+      // starve quieter ones of a preview row.
+      .limit(Math.max(ids.length * 5, 50));
     for (const m of (msgs ?? []) as Array<{
       thread_id: string;
       body: string | null;
@@ -175,6 +177,15 @@ export async function getThreadHead(threadId: string): Promise<{
     contactEmail: row.contact?.email ?? null,
     lastSubject,
   };
+}
+
+// zero a thread's unread count when it is opened. RLS-scoped, best-effort.
+export async function markThreadRead(threadId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("gc_unibox_threads")
+    .update({ unread_count: 0 })
+    .eq("id", threadId);
 }
 
 // log a sent email into the unibox: find or create the contact's email thread,

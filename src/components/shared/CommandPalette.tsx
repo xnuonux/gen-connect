@@ -16,6 +16,9 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const openRef = useRef(open);
+  const wasOpenRef = useRef(false);
 
   const results = useMemo(() => filterCommands(query), [query]);
 
@@ -34,22 +37,36 @@ export function CommandPalette() {
     [close, router],
   );
 
-  // the global open shortcut. cmd+K (mac) / ctrl+K. all state changes here live
-  // in the event handler, never in the effect body (the set-state-in-effect rule).
+  // keep openRef current for the global handler without re-registering it.
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  // the global open shortcut. cmd+K (mac) / ctrl+K. closing via the shortcut
+  // routes through close() so query + active never go stale for the next open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setOpen((prev) => !prev);
+        if (openRef.current) close();
+        else setOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [close]);
 
-  // focus the input when the palette opens.
+  // focus the input when the palette opens; on a real close, land keyboard
+  // users back on the launcher. ref access lives in this effect, never in
+  // render or a render-created handler (the react-hooks/refs rule).
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) {
+      wasOpenRef.current = true;
+      inputRef.current?.focus();
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      triggerRef.current?.focus();
+    }
   }, [open]);
 
   function onListKey(e: React.KeyboardEvent) {
@@ -78,6 +95,7 @@ export function CommandPalette() {
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         className="planetarium flex items-center gap-2 rounded-md border border-lunari-surface-elevated bg-lunari-black/40 px-2.5 py-1 text-xs text-lunari-neutral-400 hover:text-lunari-cream"

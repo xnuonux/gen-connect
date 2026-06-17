@@ -19,6 +19,7 @@ import {
   fetchThreadMessages,
   draftReplyAction,
   sendReplyAction,
+  markThreadReadAction,
 } from "@/app/actions/unibox";
 import type { UniboxThread } from "@/lib/supabase/unibox";
 
@@ -111,6 +112,16 @@ export function UniboxView({
     setSelectedId(id);
     setComposer("");
     setMeta(null);
+    // optimistically clear the unread dot, then persist + reconcile.
+    const target = threads.find((t) => t.id === id);
+    if (target && target.unreadCount > 0) {
+      queryClient.setQueryData<UniboxThread[]>(["unibox-threads"], (old) =>
+        (old ?? []).map((t) => (t.id === id ? { ...t, unreadCount: 0 } : t)),
+      );
+      void markThreadReadAction(id).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["unibox-threads"] }),
+      );
+    }
   }
 
   function onComposerKey(e: React.KeyboardEvent) {

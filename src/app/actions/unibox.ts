@@ -7,12 +7,14 @@ import {
   getThreadMessages,
   getThreadHead,
   logOutboundEmail,
+  markThreadRead,
   type UniboxThread,
   type UniboxMessage,
 } from "@/lib/supabase/unibox";
 import { getVoiceProfile } from "@/lib/supabase/voice";
 import { draftReply, type ReplyTranscriptLine } from "@/lib/ai/reply";
 import { sendDraftEmail } from "@/lib/email/send";
+import { scrubVoice } from "@/lib/ai/scrub";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -34,6 +36,13 @@ export async function fetchThreadMessages(
   const user = await requireUser();
   if (!user) return [];
   return getThreadMessages(threadId);
+}
+
+// clear a thread's unread dot when the user opens it.
+export async function markThreadReadAction(threadId: string): Promise<void> {
+  const user = await requireUser();
+  if (!user) return;
+  await markThreadRead(threadId);
 }
 
 export type DraftReplyResult =
@@ -118,10 +127,14 @@ export async function sendReplyAction(
       parsed.data.subject ??
       (head.lastSubject ? `re: ${head.lastSubject}` : "re: your note");
 
+    // scrub once so the persisted transcript matches the sent email exactly ...
+    // nothing reaches the unibox un-scrubbed, even a user-typed em-dash.
+    const cleanBody = scrubVoice(parsed.data.body);
+
     const result = await sendDraftEmail({
       to: head.contactEmail,
       subject,
-      body: parsed.data.body,
+      body: cleanBody,
     });
 
     if (!result.sent) {
@@ -135,7 +148,7 @@ export async function sendReplyAction(
       await logOutboundEmail({
         contactId: head.contactId,
         subject,
-        body: parsed.data.body,
+        body: cleanBody,
         externalId: result.id ?? null,
       });
     }

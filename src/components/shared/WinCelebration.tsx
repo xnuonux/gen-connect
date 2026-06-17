@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 // the win celebration ... the one decorative gold moment the design system
 // reserves for booked + closed. a burgundy core blooms into a single gold ring
@@ -22,11 +22,19 @@ export function WinCelebration({
   quote?: string;
   onDone: () => void;
 }) {
+  // keep onDone current without re-arming the timer ... both call sites pass a
+  // fresh inline arrow, so keying the timer on onDone would reset it on every
+  // parent re-render. one deterministic timer per show transition.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  }, [onDone]);
+
   useEffect(() => {
     if (!show) return;
-    const t = setTimeout(onDone, 1950);
+    const t = setTimeout(() => onDoneRef.current(), 1950);
     return () => clearTimeout(t);
-  }, [show, onDone]);
+  }, [show]);
 
   if (!show) return null;
 
