@@ -30,6 +30,7 @@ import {
   listActiveSignalTriggers,
   incrementTriggerFire,
 } from "@/lib/supabase/triggers";
+import { enrollContacts } from "@/lib/supabase/sequences";
 import {
   SIGNAL_TYPES,
   DISMISS_REASONS,
@@ -342,6 +343,20 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
           fired += 1;
           if (!topFired || f.score > topFired.score) {
             topFired = { cid, score: f.score };
+          }
+          // if the matched trigger targets a sequence, enroll the sourced contact
+          // into it ... the loop closes from detect to enrolled, not just drafted.
+          // best-effort: an enroll failure never strands the fired hit.
+          const act = match.action as { kind?: string; sequence_id?: string };
+          if (act?.kind === "enroll_in_sequence" && typeof act.sequence_id === "string") {
+            try {
+              await enrollContacts({
+                sequenceId: act.sequence_id,
+                contactIds: [cid],
+              });
+            } catch (e) {
+              console.error("[signals] auto-enroll failed", e);
+            }
           }
         } catch (e) {
           // any mid-sequence db error reverts the claim, so the hit re-surfaces

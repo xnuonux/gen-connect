@@ -50,6 +50,34 @@ export type SequenceGraph = {
 
 export const EMPTY_GRAPH: SequenceGraph = { nodes: [], edges: [] };
 
+// the named source handles a node exposes. condition forks true/false; branch
+// forks one path per way (capped 2-4). start/send/wait expose a single unnamed
+// handle (returns [] here ... the canvas renders the lone handle); end has none.
+// this is the contract that lets the saved graph carry path identity (which edge
+// is the true branch, which way is which) so the deferred compiler can route it.
+export function sourceHandlesFor(
+  kind: NodeKind,
+  data: SequenceNodeData,
+): string[] {
+  if (kind === "condition") return ["true", "false"];
+  if (kind === "branch") {
+    const raw = typeof data.ways === "number" ? data.ways : 2;
+    const ways = Math.max(2, Math.min(4, raw));
+    return Array.from({ length: ways }, (_, i) => `way-${i + 1}`);
+  }
+  return [];
+}
+
+// an even integer split that always sums to 100 (remainder folded into the first
+// way) ... the default branch weighting the inspector seeds + resets on ways change.
+export function evenWeights(n: number): number[] {
+  const k = Math.max(2, Math.min(4, n));
+  const base = Math.floor(100 / k);
+  const out = Array.from({ length: k }, () => base);
+  out[0] = (out[0] ?? base) + (100 - base * k);
+  return out;
+}
+
 export type SequenceStatus = "draft" | "active" | "paused" | "archived";
 
 export type SequenceSummary = {

@@ -12,6 +12,7 @@ import {
   testTriggerAction,
   type TriggerTestMatch,
 } from "@/app/actions/triggers";
+import { fetchSequences } from "@/app/actions/sequences";
 import {
   SIGNAL_TYPES,
   SIGNAL_LABELS,
@@ -192,6 +193,13 @@ function TriggerBuilder({
   const [status, setStatus] = useState<"active" | "dry_run" | "paused">(
     "dry_run",
   );
+  // empty = draft the 5 angles on match; a sequence id = enroll the sourced
+  // contact into that sequence (the loop closes from detect to enrolled).
+  const [sequenceId, setSequenceId] = useState<string>("");
+  const { data: sequences = [] } = useQuery({
+    queryKey: ["sequences"],
+    queryFn: fetchSequences,
+  });
 
   const condition: TriggerCondition = useMemo(() => {
     const c: TriggerCondition = {
@@ -218,7 +226,9 @@ function TriggerBuilder({
         name: name.trim() || `${anySignal ? "any" : signalType} trigger`,
         status,
         condition,
-        action: { kind: "draft" },
+        action: sequenceId
+          ? { kind: "enroll_in_sequence", sequence_id: sequenceId }
+          : { kind: "draft" },
       });
       if (!r.ok) throw new Error(r.error);
       return r;
@@ -358,6 +368,26 @@ function TriggerBuilder({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-lunari-neutral-500">
+              on match
+            </span>
+            <select
+              value={sequenceId}
+              onChange={(e) => setSequenceId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-lunari-surface-elevated bg-lunari-black px-2 py-2 text-sm text-lunari-cream focus:outline-none"
+            >
+              <option value="" className="bg-lunari-surface">
+                draft the 5 angles
+              </option>
+              {sequences.map((s) => (
+                <option key={s.id} value={s.id} className="bg-lunari-surface">
+                  enroll in {s.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* the live dry run ... runs the real evaluator over recent hits. */}

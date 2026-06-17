@@ -9,6 +9,7 @@ import {
   bulkMoveStageAction,
   bulkTagAction,
 } from "@/app/actions/contacts";
+import { fetchSequences, enrollContactsAction } from "@/app/actions/sequences";
 import { toast } from "sonner";
 import { ContactDrawer } from "@/components/shared/ContactDrawer";
 import { StageChip } from "@/components/shared/StageChip";
@@ -146,7 +147,36 @@ export function PipelineTable({
       toast.error(e instanceof Error ? e.message : "couldn't tag those."),
   });
 
-  const busy = bulkMove.isPending || bulkTag.isPending;
+  // the sequences list for the enroll picker ... only fetched once a selection
+  // exists (the bar is the only consumer), shares the ['sequences'] cache.
+  const { data: sequences = [] } = useQuery({
+    queryKey: ["sequences"],
+    queryFn: fetchSequences,
+    enabled: picked.size > 0,
+  });
+
+  const enroll = useMutation({
+    mutationFn: async (sequenceId: string) => {
+      const r = await enrollContactsAction({ sequenceId, contactIds: ids });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: (r) => {
+      toast.success(
+        r.enrolled > 0
+          ? `enrolled ${r.enrolled} ... watch the steps fire from campaigns.`
+          : "already enrolled.",
+      );
+      clearPicked();
+      void queryClient.invalidateQueries({ queryKey: ["contacts"] });
+      void queryClient.invalidateQueries({ queryKey: ["sequences"] });
+      router.refresh();
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "couldn't enroll those."),
+  });
+
+  const busy = bulkMove.isPending || bulkTag.isPending || enroll.isPending;
 
   const cols: { key: SortKey; label: string }[] = [
     { key: "name", label: "name" },
@@ -282,6 +312,25 @@ export function PipelineTable({
                 </option>
               ))}
             </select>
+            {sequences.length > 0 ? (
+              <select
+                aria-label="enroll in sequence"
+                defaultValue=""
+                disabled={busy}
+                onChange={(e) => {
+                  if (e.target.value) enroll.mutate(e.target.value);
+                  e.currentTarget.value = "";
+                }}
+                className="rounded-md border border-lunari-surface-elevated bg-lunari-black px-2 py-1.5 text-xs text-lunari-cream/90 focus:outline-none"
+              >
+                <option value="">enroll in ...</option>
+                {sequences.map((s) => (
+                  <option key={s.id} value={s.id} className="bg-lunari-surface">
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <div className="flex items-center gap-1.5">
               <input
                 value={tagText}

@@ -8,6 +8,7 @@ import {
   getSequence,
   createSequence,
   saveSequence,
+  enrollContacts,
 } from "@/lib/supabase/sequences";
 import { validateGraph } from "@/lib/sequences/validate";
 import {
@@ -139,5 +140,36 @@ export async function saveSequenceAction(
   } catch (err) {
     console.error("[sequences] save failed", err);
     return { ok: false, error: "couldn't save that ... try again." };
+  }
+}
+
+const EnrollInput = z.object({
+  sequenceId: z.string().uuid(),
+  contactIds: z.array(z.string().uuid()).min(1).max(500),
+});
+
+export type EnrollResult =
+  | { ok: true; enrolled: number }
+  | { ok: false; error: string };
+
+// enroll a segment into a sequence ... the manual half of the spine (the bulk bar
+// + the signal card call this; the auto-fire loop calls enrollContacts directly).
+export async function enrollContactsAction(raw: unknown): Promise<EnrollResult> {
+  const user = await requireUser();
+  if (!user) return { ok: false, error: "sign in to enroll ..." };
+
+  const parsed = EnrollInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "that enrollment didn't look right ..." };
+  }
+
+  try {
+    const r = await enrollContacts(parsed.data);
+    revalidatePath("/campaigns");
+    revalidatePath("/pipeline");
+    return { ok: true, enrolled: r.enrolled };
+  } catch (err) {
+    console.error("[sequences] enroll failed", err);
+    return { ok: false, error: "couldn't enroll those ... try again." };
   }
 }

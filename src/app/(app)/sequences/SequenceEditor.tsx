@@ -41,6 +41,8 @@ import {
 import { validateGraph } from "@/lib/sequences/validate";
 import {
   NODE_LABELS,
+  sourceHandlesFor,
+  evenWeights,
   type NodeKind,
   type SequenceGraph,
   type SequenceRecord,
@@ -75,9 +77,13 @@ const DEFAULT_DATA: Record<NodeKind, Record<string, unknown>> = {
   send: { channel: "email", subject: "", body: "" },
   wait: { amount: 2, unit: "days" },
   condition: { check: "opened" },
-  branch: { ways: 2 },
+  branch: { ways: 2, weights: [50, 50] },
   end: { action: "completed" },
 };
+
+function wayLabelShort(handle: string): string {
+  return handle.startsWith("way-") ? handle.slice(4) : handle;
+}
 
 const PALETTE: Exclude<NodeKind, "start">[] = [
   "send",
@@ -128,6 +134,7 @@ function GcNode(props: NodeProps) {
   const selected = props.selected ?? false;
   const Icon = KIND_ICON[kind];
   const body = readStr(data, "body");
+  const named = sourceHandlesFor(kind, data);
   return (
     <div
       className={cn(
@@ -152,7 +159,31 @@ function GcNode(props: NodeProps) {
           {body}
         </p>
       ) : null}
-      {kind !== "end" ? (
+      {named.length > 0 ? (
+        <>
+          {named.map((h, i) => (
+            <Handle
+              key={h}
+              id={h}
+              type="source"
+              position={Position.Bottom}
+              style={{ ...HANDLE_STYLE, left: `${((i + 1) / (named.length + 1)) * 100}%` }}
+            />
+          ))}
+          {/* labels just inside the bottom edge, aligned to each handle. */}
+          <div className="relative mt-2 h-3">
+            {named.map((h, i) => (
+              <span
+                key={h}
+                className="absolute top-0 -translate-x-1/2 font-mono text-[8px] uppercase tracking-wide text-lunari-neutral-500"
+                style={{ left: `${((i + 1) / (named.length + 1)) * 100}%` }}
+              >
+                {kind === "branch" ? wayLabelShort(h) : h}
+              </span>
+            ))}
+          </div>
+        </>
+      ) : kind !== "end" ? (
         <Handle type="source" position={Position.Bottom} style={HANDLE_STYLE} />
       ) : null}
     </div>
@@ -294,8 +325,27 @@ export function SequenceEditor({
           n.id === id ? { ...n, data: { ...n.data, ...patch } } : n,
         ),
       );
+      // shrinking a branch's ways orphans edges on the dropped way handles ...
+      // prune them so the graph never carries a dangling, unrenderable edge.
+      if (typeof patch.ways === "number") {
+        const ways = Math.max(2, Math.min(4, patch.ways));
+        const valid = new Set(
+          Array.from({ length: ways }, (_, i) => `way-${i + 1}`),
+        );
+        setEdges((eds) =>
+          eds.filter(
+            (e) =>
+              !(
+                e.source === id &&
+                typeof e.sourceHandle === "string" &&
+                e.sourceHandle.startsWith("way-") &&
+                !valid.has(e.sourceHandle)
+              ),
+          ),
+        );
+      }
     },
-    [setNodes],
+    [setNodes, setEdges],
   );
 
   const deleteNode = useCallback(
@@ -593,6 +643,79 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 const INPUT_CLS =
   "mt-1 w-full rounded-md border border-lunari-surface-elevated bg-lunari-black px-2 py-2 text-sm text-lunari-cream placeholder:text-lunari-neutral-500 focus:outline-none focus:ring-1 focus:ring-gen-accent";
 
+// the branch inspector ... ways (2-4) + a per-way weight that must sum to 100.
+// changing ways reseeds an even split (and the canvas prunes orphaned way edges).
+function BranchFields({
+  data,
+  onChange,
+}: {
+  data: Record<string, unknown>;
+  onChange: (patch: Record<string, unknown>) => void;
+}) {
+  const ways = Math.max(2, Math.min(4, readNum(data, "ways", 2)));
+  const weights: number[] =
+    Array.isArray(data.weights) && data.weights.length === ways
+      ? (data.weights as unknown[]).map((w) => (typeof w === "number" ? w : 0))
+      : evenWeights(ways);
+  const sum = weights.reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <FieldLabel>ways</FieldLabel>
+        <input
+          type="number"
+          min={2}
+          max={4}
+          value={ways}
+          onChange={(e) => {
+            const w = Math.max(2, Math.min(4, Number(e.target.value) || 2));
+            onChange({ ways: w, weights: evenWeights(w) });
+          }}
+          className={INPUT_CLS}
+        />
+      </div>
+      <div>
+        <div className="flex items-center justify-between">
+          <FieldLabel>weights</FieldLabel>
+          <span
+            className={cn(
+              "font-mono text-[10px] tabular-nums",
+              sum === 100 ? "text-lunari-neutral-400" : "text-lunari-gold",
+            )}
+          >
+            {sum} / 100
+          </span>
+        </div>
+        <div className="mt-1 space-y-1.5">
+          {weights.map((w, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-12 font-mono text-[10px] uppercase tracking-wide text-lunari-neutral-500">
+                way {i + 1}
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={w}
+                onChange={(e) => {
+                  const next = [...weights];
+                  next[i] = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                  onChange({ weights: next });
+                }}
+                className={cn(INPUT_CLS, "mt-0 flex-1")}
+              />
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-lunari-neutral-500">
+          a weighted split ... draw one path per way, weights sum to 100.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function NodeInspector({
   node,
   onChange,
@@ -728,26 +851,7 @@ function NodeInspector({
           </div>
         ) : null}
 
-        {kind === "branch" ? (
-          <div>
-            <FieldLabel>ways</FieldLabel>
-            <input
-              type="number"
-              min={2}
-              max={4}
-              value={readNum(data, "ways", 2)}
-              onChange={(e) =>
-                onChange({
-                  ways: Math.max(2, Math.min(4, Number(e.target.value) || 2)),
-                })
-              }
-              className={INPUT_CLS}
-            />
-            <p className="mt-2 text-[11px] text-lunari-neutral-500">
-              a weighted split ... draw one outgoing path per way.
-            </p>
-          </div>
-        ) : null}
+        {kind === "branch" ? <BranchFields data={data} onChange={onChange} /> : null}
 
         {kind === "end" ? (
           <div>

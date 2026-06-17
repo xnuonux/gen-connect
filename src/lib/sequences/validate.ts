@@ -1,13 +1,26 @@
-import { type SequenceGraph } from "@/lib/types/sequence";
+import {
+  sourceHandlesFor,
+  type SequenceGraph,
+} from "@/lib/types/sequence";
 
 // the publish gate ... a pure function over the graph (no server imports), so the
 // editor + the (later) compiler share one source of truth. returns the offending
 // node ids so the canvas can flag them inline. see .claude/skills/xyflow-sequences.
+//
+// path identity matters: condition/branch carry named source handles (true/false,
+// way-1..n). the gate requires exactly one edge per named handle + branch weights
+// summing to 100, so it never greenlights a graph the compiler can't route.
 
 export type SequenceIssue = { nodeId?: string; message: string };
 
+type OutEdge = { target: string; handle: string | null };
+
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
+}
+
+function wayLabel(handle: string): string {
+  return handle.startsWith("way-") ? handle.slice(4) : handle;
 }
 
 export function validateGraph(graph: SequenceGraph): SequenceIssue[] {
@@ -25,10 +38,18 @@ export function validateGraph(graph: SequenceGraph): SequenceIssue[] {
     issues.push({ message: "more than one start node ... there can be only one." });
   }
 
+  // targets-only adjacency for reachability + cycle detection; the full edge list
+  // (with source handle) for the per-node path-identity rules.
   const out = new Map<string, string[]>();
-  for (const n of nodes) out.set(n.id, []);
+  const outFull = new Map<string, OutEdge[]>();
+  for (const n of nodes) {
+    out.set(n.id, []);
+    outFull.set(n.id, []);
+  }
   for (const e of edges) {
     if (out.has(e.source)) out.get(e.source)!.push(e.target);
+    if (outFull.has(e.source))
+      outFull.get(e.source)!.push({ target: e.target, handle: e.sourceHandle ?? null });
   }
 
   // reachability from start (bfs).
@@ -71,20 +92,46 @@ export function validateGraph(graph: SequenceGraph): SequenceIssue[] {
 
   // per-node rules.
   for (const n of nodes) {
-    const outgoing = out.get(n.id) ?? [];
+    const outgoing = outFull.get(n.id) ?? [];
     if (n.type === "end") continue;
+
     // every non-end leaf must terminate at an end node.
     if (outgoing.length === 0) {
       issues.push({ nodeId: n.id, message: `${n.type} is a dead end ... connect it onward to an end node.` });
     }
-    if (n.type === "send" && !str(n.data.body)) {
-      issues.push({ nodeId: n.id, message: "send node has no body." });
+
+    if (n.type === "send") {
+      if (n.data.channel === "email" && !str(n.data.subject)) {
+        issues.push({ nodeId: n.id, message: "email send has no subject." });
+      }
+      if (!str(n.data.body)) {
+        issues.push({ nodeId: n.id, message: "send node has no body." });
+      }
     }
-    if (n.type === "condition" && outgoing.length < 2) {
-      issues.push({ nodeId: n.id, message: "condition needs both a true and a false branch." });
+
+    // condition + branch carry named handles ... one edge per handle, no more.
+    if (n.type === "condition" || n.type === "branch") {
+      const handles = sourceHandlesFor(n.type, n.data);
+      for (const h of handles) {
+        const count = outgoing.filter((e) => e.handle === h).length;
+        const where = n.type === "condition" ? `${h} path` : `path ${wayLabel(h)}`;
+        if (count === 0) {
+          issues.push({ nodeId: n.id, message: `${n.type} ${where} has no outgoing edge.` });
+        } else if (count > 1) {
+          issues.push({ nodeId: n.id, message: `${n.type} ${where} has more than one edge.` });
+        }
+      }
     }
-    if (n.type === "branch" && outgoing.length < 2) {
-      issues.push({ nodeId: n.id, message: "branch needs at least two outgoing paths." });
+
+    // branch weights must cover every way and sum to 100.
+    if (n.type === "branch") {
+      const handles = sourceHandlesFor("branch", n.data);
+      const weights = Array.isArray(n.data.weights) ? (n.data.weights as unknown[]) : [];
+      const nums = weights.map((w) => (typeof w === "number" ? w : NaN));
+      const sum = nums.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
+      if (nums.length !== handles.length || nums.some((w) => !Number.isFinite(w)) || sum !== 100) {
+        issues.push({ nodeId: n.id, message: "branch weights must cover every path and sum to 100." });
+      }
     }
   }
 

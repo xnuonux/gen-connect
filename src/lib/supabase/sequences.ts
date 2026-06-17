@@ -140,3 +140,64 @@ export async function saveSequence(args: {
   const r = data as Row;
   return { ...summarize(r), graph: graphOf(r.graph) };
 }
+
+// enroll contacts into a sequence ... the execution spine. inserts
+// gc_sequence_enrollments rows at the start node, dedupes against any already-
+// active enrollment, recomputes enrolled_count from the live count (derived, so it
+// converges), and advances eligible contacts (cold/enriched/drafted) to
+// 'sequenced' without ever pulling a replied/booked/closed contact backwards. the
+// pg-boss executor (railway, deferred) picks these rows up later; for now they
+// populate the campaigns ledger + the pipeline stage. RLS-scoped on every table.
+export async function enrollContacts(args: {
+  sequenceId: string;
+  contactIds: string[];
+}): Promise<{ enrolled: number }> {
+  const uid = await userId();
+  if (!uid) return { enrolled: 0 };
+  const supabase = await createClient();
+
+  const seq = await getSequence(args.sequenceId);
+  if (!seq) throw new Error("sequence not found");
+  const startId = seq.graph.nodes.find((n) => n.type === "start")?.id ?? null;
+
+  const { data: existing } = await supabase
+    .from("gc_sequence_enrollments")
+    .select("contact_id")
+    .eq("sequence_id", args.sequenceId)
+    .eq("status", "active")
+    .in("contact_id", args.contactIds);
+  const already = new Set(
+    ((existing ?? []) as { contact_id: string }[]).map((r) => r.contact_id),
+  );
+  const targets = args.contactIds.filter((id) => !already.has(id));
+  if (targets.length === 0) return { enrolled: 0 };
+
+  const rows = targets.map((cid) => ({
+    user_id: uid,
+    sequence_id: args.sequenceId,
+    contact_id: cid,
+    version: seq.version,
+    current_node_id: startId,
+    status: "active",
+  }));
+  const { error } = await supabase.from("gc_sequence_enrollments").insert(rows);
+  if (error) throw new Error(error.message);
+
+  const { count } = await supabase
+    .from("gc_sequence_enrollments")
+    .select("id", { count: "exact", head: true })
+    .eq("sequence_id", args.sequenceId)
+    .eq("status", "active");
+  await supabase
+    .from("gc_sequences")
+    .update({ enrolled_count: count ?? seq.enrolledCount + rows.length })
+    .eq("id", args.sequenceId);
+
+  await supabase
+    .from("gc_contacts")
+    .update({ stage: "sequenced" })
+    .in("id", targets)
+    .in("stage", ["cold", "enriched", "drafted"]);
+
+  return { enrolled: rows.length };
+}
