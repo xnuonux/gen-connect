@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import {
   Radio,
@@ -56,6 +57,9 @@ export function SignalsView({
 }) {
   const queryClient = useQueryClient();
   const [wizardOpen, setWizardOpen] = useState(false);
+  // one browser client for the lifetime of the view ... created once, never
+  // re-instantiated on re-render.
+  const [supabase] = useState(() => createClient());
 
   const { data: agents } = useQuery({
     queryKey: ["signal-agents"],
@@ -68,8 +72,30 @@ export function SignalsView({
     queryKey: ["signal-hits"],
     queryFn: fetchHits,
     initialData: initialHits,
-    refetchInterval: 20_000,
+    // realtime is primary; the poll is a 60s fallback if the socket drops.
+    refetchInterval: 60_000,
   });
+
+  // the live feed: a realtime channel on gc_signal_hits insert. the second a hit
+  // lands, refetch ... "while you sleep" made literal. RLS scopes which inserts
+  // this client receives. the callback only invalidates (no state set in the
+  // effect body), so it stays clear of the set-state-in-effect rule.
+  useEffect(() => {
+    const channel = supabase
+      .channel("gc-signal-hits-feed")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "gc_signal_hits" },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ["signal-hits"] });
+          void queryClient.invalidateQueries({ queryKey: ["signal-agents"] });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [supabase, queryClient]);
 
   const live = useMemo(
     () => hits.filter((h) => h.status === "pending" || h.status === "scored"),
