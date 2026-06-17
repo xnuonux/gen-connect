@@ -1,9 +1,9 @@
 -- gen connect ... v0.1.8 ... the signal layer schema (the gojiberry-beater)
 --
--- STAGED, NOT YET APPLIED. a production migration to the shared substrate needs
--- dom's explicit per-migration approval (the auto-mode classifier blocks it
--- otherwise, by design). this file is written + reviewed; apply it via the
--- Supabase MCP apply_migration once approved, then run get_advisors (security).
+-- APPLIED to prod (fpposmirumtbocqtxued) with dom's explicit approval. verified:
+-- RLS enabled + own-row policy on all four tables, zero security-advisor findings
+-- on the new tables. the engine that reads these (flame/evaluate/cooldown) is now
+-- wired live ... see src/lib/supabase/signals.ts + src/lib/signals/score.ts.
 --
 -- the engine that reads these tables already ships + is fixture-verified:
 -- lib/signals/flame.ts (the flame floor), lib/triggers/evaluate.ts (the jsonb
