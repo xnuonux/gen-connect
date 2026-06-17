@@ -3,6 +3,7 @@ import type { Route } from "next";
 import { Sparkles } from "lucide-react";
 import { Providers } from "@/app/providers";
 import { RailNav } from "@/app/(app)/RailNav";
+import { CommandPalette } from "@/components/shared/CommandPalette";
 import { workspaceStats } from "@/lib/supabase/stats";
 
 // the dollars-not-fuel hero: whole dollars, comma-grouped. cents in, $ out.
@@ -64,12 +65,15 @@ export default async function AppLayout({
               in opportunities since launch
             </span>
           </div>
-          <div className="ml-auto flex items-center gap-4 text-xs text-lunari-neutral-400 font-mono">
-            <span>sends today · {stats.sendsToday}</span>
-            <span className="text-lunari-surface-elevated">|</span>
-            <span>replies · {stats.replies}</span>
-            <span className="text-lunari-surface-elevated">|</span>
-            <span className="text-gen-accent">booked · {stats.booked}</span>
+          <div className="ml-auto flex items-center gap-4">
+            <CommandPalette />
+            <div className="hidden items-center gap-4 text-xs text-lunari-neutral-400 font-mono md:flex">
+              <span>sends today · {stats.sendsToday}</span>
+              <span className="text-lunari-surface-elevated">|</span>
+              <span>replies · {stats.replies}</span>
+              <span className="text-lunari-surface-elevated">|</span>
+              <span className="text-gen-accent">booked · {stats.booked}</span>
+            </div>
           </div>
         </header>
 
