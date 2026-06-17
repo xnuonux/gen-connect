@@ -1,25 +1,9 @@
 import Link from "next/link";
 import type { Route } from "next";
-import {
-  Users,
-  Inbox,
-  Radio,
-  GitBranch,
-  Zap,
-  Workflow,
-  Sparkles,
-} from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Providers } from "@/app/providers";
+import { RailNav } from "@/app/(app)/RailNav";
 import { workspaceStats } from "@/lib/supabase/stats";
-
-const tabs = [
-  { href: "/pipeline", label: "pipeline", icon: Users },
-  { href: "/unibox", label: "unibox", icon: Inbox },
-  { href: "/signals", label: "signals", icon: Radio },
-  { href: "/campaigns", label: "campaigns", icon: GitBranch },
-  { href: "/triggers", label: "triggers", icon: Zap },
-  { href: "/sequences", label: "sequences", icon: Workflow },
-] as const;
 
 // the dollars-not-fuel hero: whole dollars, comma-grouped. cents in, $ out.
 function formatUsd(cents: number): string {
@@ -49,29 +33,7 @@ export default async function AppLayout({
           </div>
         </div>
 
-        <nav className="flex-1 py-4 px-3 space-y-0.5">
-          <Link
-            href={"/gen" as Route}
-            className="planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-gen-accent hover:bg-gen-accent-soft"
-          >
-            <Sparkles className="h-4 w-4 stroke-[1.25]" />
-            <span>gen</span>
-          </Link>
-          <div className="my-1.5 h-px bg-lunari-surface-elevated" />
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className="planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm text-lunari-cream/80 hover:text-lunari-cream hover:bg-lunari-surface-elevated"
-              >
-                <Icon className="h-4 w-4 stroke-[1.25]" />
-                <span>{tab.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+        <RailNav />
 
         <div className="px-3 py-4 border-t border-lunari-surface-elevated space-y-3">
           <Link
