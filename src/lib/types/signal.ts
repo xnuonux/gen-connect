@@ -43,6 +43,53 @@ export const SIGNAL_LABELS: Record<SignalType, string> = {
   company_news: "company news",
 };
 
+// dismissal reasons ... matches the gc_signal_dismissals CHECK constraint. the
+// typed reason feeds the weekly refinement loop. client-safe.
+export const DISMISS_REASONS = [
+  "wrong_industry",
+  "wrong_role",
+  "wrong_timing",
+  "already_contacted",
+  "low_quality_data",
+  "not_a_fit",
+  "other",
+] as const;
+export type DismissReason = (typeof DISMISS_REASONS)[number];
+
+export const DISMISS_REASON_LABELS: Record<DismissReason, string> = {
+  wrong_industry: "wrong industry",
+  wrong_role: "wrong role",
+  wrong_timing: "wrong timing",
+  already_contacted: "already contacted",
+  low_quality_data: "low quality data",
+  not_a_fit: "not a fit",
+  other: "other",
+};
+
+// build a one-line personalization hook from a signal payload ... the moment the
+// drafter opens on (the signal IS the message). pure + client-safe so the feed
+// card + the draft bridge share one source of truth.
+export function hookFromHit(
+  signalType: SignalType,
+  raw: Record<string, unknown>,
+): string {
+  const s = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  switch (signalType) {
+    case "searching_for":
+      return `posted looking for ${s(raw.matched_need) || "a tool like yours"}`;
+    case "tool_mention":
+      return `mentioned ${s(raw.mentioned_tool) || "a competitor"} in a post`;
+    case "product_launch":
+      return `just launched ${s(raw.product_name) || "a new product"}`;
+    case "promotion":
+      return `just stepped into ${s(raw.new_title) || "a new role"}${s(raw.company) ? ` at ${s(raw.company)}` : ""}`;
+    case "funding_round":
+      return `just raised ${s(raw.round_type) || "a round"}${s(raw.company) ? ` at ${s(raw.company)}` : ""}`;
+    default:
+      return SIGNAL_LABELS[signalType];
+  }
+}
+
 // a normalized signal hit ... the shape after an apify dataset row is mapped to
 // the per-type contract. raw carries the type-specific payload the drafter reads.
 export type SignalHit = {
