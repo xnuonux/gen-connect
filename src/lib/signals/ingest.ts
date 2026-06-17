@@ -8,6 +8,8 @@ import { type SignalType } from "@/lib/types/signal";
 // the actor is env-overridable; the default is the tested one.
 const X_SEARCH_ACTOR =
   process.env.APIFY_X_SEARCH_ACTOR ?? "api-ninja~x-twitter-advanced-search";
+const REDDIT_SEARCH_ACTOR =
+  process.env.APIFY_REDDIT_SEARCH_ACTOR ?? "practicaltools~apify-reddit-api";
 
 function s(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
@@ -89,6 +91,65 @@ export async function searchXSignals(args: {
       mentioned_tool: "",
       category: "",
       posted_at: s(it.created_at),
+      detected_at: args.nowIso,
+    });
+  }
+  return { raws, query };
+}
+
+// reddit search is plain keywords (no X boolean operators). keep it simple ... the
+// category terms, plus an intent word for searching_for.
+export function buildRedditQuery(icp: Record<string, unknown>): string {
+  const keywords = Array.isArray(icp.keywords) ? (icp.keywords as unknown[]) : [];
+  const industry = Array.isArray(icp.industry) ? (icp.industry as unknown[]) : [];
+  // reddit search yields little on long phrases ... keep it to the broad category
+  // terms (a la "saas"); the scorer separates intent from noise downstream.
+  const terms = [...keywords, ...industry].map(s).filter(Boolean).slice(0, 2);
+  return terms.length ? terms.join(" ") : "tool";
+}
+
+// run the reddit search actor through the pool + normalize the practicaltools
+// shape (verified live: id/parsedId, url, username, title, communityName, body,
+// createdAt) to the same raw contract. post_text folds title + body.
+export async function searchRedditSignals(args: {
+  signalType: SignalType;
+  icp: Record<string, unknown>;
+  query?: string;
+  max?: number;
+  nowIso: string;
+}): Promise<XSearchResult> {
+  const query = (args.query ?? "").trim() || buildRedditQuery(args.icp);
+  const max = Math.min(Math.max(args.max ?? 15, 1), 30);
+
+  // practicaltools manages its own proxy + rejects extra fields ... keep the
+  // input minimal (verified live: searches + maxItems).
+  const run = await runApifyActorPooled(
+    REDDIT_SEARCH_ACTOR,
+    { searches: [query], maxItems: max },
+    120000,
+  );
+  if (!run.ok) return { raws: [], query, error: run.error };
+
+  const raws: Record<string, unknown>[] = [];
+  for (const it of run.items as Record<string, unknown>[]) {
+    const id = s(it.id) || s(it.parsedId);
+    const title = s(it.title);
+    const body = s(it.body);
+    const text = [title, body].filter(Boolean).join(" ... ");
+    if (!id || !text) continue;
+    const username = s(it.username);
+    raws.push({
+      source_id: `rd_${id}`,
+      post_url: s(it.url),
+      platform: "reddit",
+      author_handle: username,
+      author_name: username,
+      author_profile_url: username ? `https://reddit.com/user/${username}` : "",
+      post_text: text,
+      matched_need: text,
+      mentioned_tool: "",
+      category: s(it.communityName),
+      posted_at: s(it.createdAt),
       detected_at: args.nowIso,
     });
   }

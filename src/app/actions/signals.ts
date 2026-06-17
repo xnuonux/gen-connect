@@ -20,7 +20,7 @@ import {
   type SignalHitRow,
   type AgentStatus,
 } from "@/lib/supabase/signals";
-import { searchXSignals } from "@/lib/signals/ingest";
+import { searchXSignals, searchRedditSignals } from "@/lib/signals/ingest";
 import { scoreSignalHit } from "@/lib/signals/score";
 import { evaluateTrigger } from "@/lib/triggers/evaluate";
 import { reserveCost, TOOL_COST_CENTS } from "@/lib/ai/gen-guard";
@@ -217,14 +217,36 @@ export async function runAgentNowAction(raw: unknown): Promise<RunAgentResult> {
     if (gate) return { ok: false, error: gate.message };
 
     const nowIso = new Date().toISOString();
-    const { raws, query, error } = await searchXSignals({
-      signalType: agent.signalType,
-      icp: agent.icp,
-      query: parsed.data.query,
-      max: 20,
-      nowIso,
-    });
-    if (error) return { ok: false, error: `apify ... ${error}` };
+    // pull X + reddit in parallel; each is best-effort (one source can fail
+    // without sinking the run). merge + dedupe on source_id.
+    const [xRes, rdRes] = await Promise.all([
+      searchXSignals({
+        signalType: agent.signalType,
+        icp: agent.icp,
+        query: parsed.data.query,
+        max: 20,
+        nowIso,
+      }),
+      searchRedditSignals({
+        signalType: agent.signalType,
+        icp: agent.icp,
+        query: parsed.data.query,
+        max: 15,
+        nowIso,
+      }),
+    ]);
+    const query = xRes.query;
+    const seenSrc = new Set<string>();
+    const raws: Record<string, unknown>[] = [];
+    for (const r of [...xRes.raws, ...rdRes.raws]) {
+      const sid = typeof r.source_id === "string" ? r.source_id : "";
+      if (!sid || seenSrc.has(sid)) continue;
+      seenSrc.add(sid);
+      raws.push(r);
+    }
+    if (raws.length === 0 && xRes.error && rdRes.error) {
+      return { ok: false, error: `apify ... ${xRes.error}` };
+    }
 
     // score in parallel (the slow part); a model outage falls to the flame floor
     // per hit, so this never strands.
