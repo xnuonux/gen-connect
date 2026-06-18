@@ -153,6 +153,16 @@ export async function saveSequence(args: {
     const r = data as Row;
     return { ...summarize(r), graph: graphOf(r.graph) };
   }
+  // exhausted retries ... distinguish a real version collision from a vanished row
+  // so the error copy is honest rather than always blaming a race.
+  const { data: exists } = await supabase
+    .from("gc_sequences")
+    .select("id")
+    .eq("id", args.id)
+    .maybeSingle();
+  if (!exists) {
+    throw new Error("this sequence is gone ... it was archived or deleted.");
+  }
   throw new Error("save raced with another tab ... refresh and try again.");
 }
 

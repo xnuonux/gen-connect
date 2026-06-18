@@ -251,6 +251,14 @@ function snap(g: SequenceGraph, n: string): string {
   return JSON.stringify({ nodes: g.nodes, edges: g.edges, name: n });
 }
 
+// reseed the fingerprint through the SAME pipeline the live compare uses
+// (fromFlow(toFlow(...))). seeding from a raw server graph instead would let
+// jsonb key-order or float drift read as falsely dirty right after a save/load.
+function snapRecord(g: SequenceGraph, n: string): string {
+  const f = toFlow(g);
+  return snap(fromFlow(f.nodes, f.edges), n);
+}
+
 // a built-in top-to-bottom auto-layout ... bfs layers from start, spreads each
 // layer across x. no dagre dependency; reflows a tangled graph into a clean tree.
 function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
@@ -358,7 +366,7 @@ export function SequenceEditor({
       setName(activeRecord.name);
       setSelectedId(null);
       loadedRef.current = activeRecord.id;
-      snapshotRef.current = snap(activeRecord.graph, activeRecord.name);
+      snapshotRef.current = snap(fromFlow(f.nodes, f.edges), activeRecord.name);
     }
   }, [activeRecord, setNodes, setEdges]);
 
@@ -467,7 +475,7 @@ export function SequenceEditor({
     },
     onSuccess: (seq) => {
       loadedRef.current = seq.id;
-      snapshotRef.current = snap(seq.graph, seq.name);
+      snapshotRef.current = snapRecord(seq.graph, seq.name);
       queryClient.setQueryData(["sequence", seq.id], seq);
       void queryClient.invalidateQueries({ queryKey: ["sequences"] });
       toast.success(
@@ -496,7 +504,15 @@ export function SequenceEditor({
         e.preventDefault();
         if (activeIdRef.current) saveRef.current.mutate(undefined);
       } else if (e.key === "Escape") {
-        setSelectedId(null);
+        // don't steal escape from a field the user is editing ... only close the
+        // inspector when focus isn't in an input/textarea/select.
+        const el = document.activeElement;
+        const typing =
+          el instanceof HTMLElement &&
+          (el.tagName === "INPUT" ||
+            el.tagName === "TEXTAREA" ||
+            el.tagName === "SELECT");
+        if (!typing) setSelectedId(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -853,7 +869,8 @@ type Variant = { id: string; body: string; weight: number };
 
 // the send inspector ... where the wedge lives. spintax {{a|b}}, {signal.*}/
 // {contact.*}/{voice.*} slot tokens (click to insert at the cursor), a live preview
-// resolving both with sample values, and up to three weighted a/b body variants.
+// resolving both with sample values, and a primary plus up to two a/b variants
+// (three bodies total), each weighted.
 function SendFields({
   data,
   onChange,
@@ -975,7 +992,7 @@ function SendFields({
         <div className="rounded-md border border-lunari-surface-elevated bg-lunari-black/40 p-2.5">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-lunari-neutral-500">
-              preview
+              preview · sample values
             </span>
             {combos > 1 ? (
               <span className="font-mono text-[9px] text-lunari-gold">
@@ -1048,6 +1065,11 @@ function SendFields({
                 placeholder="an alternate take ... same voice, different angle."
                 className={cn(INPUT_CLS, "mt-1 resize-none")}
               />
+              {v.body.trim() ? (
+                <p className="mt-1 whitespace-pre-wrap text-[10px] leading-relaxed text-lunari-neutral-500">
+                  {renderSample(v.body, i + 1)}
+                </p>
+              ) : null}
             </div>
           ))}
           {variants.length < 2 ? (

@@ -107,6 +107,26 @@ export function validateGraph(graph: SequenceGraph): SequenceIssue[] {
       if (!str(n.data.body)) {
         issues.push({ nodeId: n.id, message: "send node has no body." });
       }
+      // a/b variants: every variant body filled + extra weights never exceed 100
+      // (the primary absorbs the remainder), so the split is real, not cosmetic.
+      const variants = Array.isArray(n.data.variants)
+        ? (n.data.variants as unknown[])
+        : [];
+      if (variants.length > 0) {
+        let extraSum = 0;
+        let emptyBody = false;
+        for (const v of variants) {
+          const o = (v ?? {}) as Record<string, unknown>;
+          if (!str(o.body)) emptyBody = true;
+          extraSum += typeof o.weight === "number" ? o.weight : 0;
+        }
+        if (emptyBody) {
+          issues.push({ nodeId: n.id, message: "a send variant has no body." });
+        }
+        if (extraSum > 100) {
+          issues.push({ nodeId: n.id, message: "send variant weights exceed 100." });
+        }
+      }
     }
 
     // condition + branch carry named handles ... one edge per handle, no more.
