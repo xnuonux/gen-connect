@@ -1,6 +1,6 @@
 /* lunari design tokens
  * single source of truth for color, motion, typography
- * gen accent (burgundy) reserved for gen-authored content only
+ * gen accent (forest green, gen's canon color) reserved for gen-authored content only
  * no raw hex in components ... everything references these vars */
 
 :root {
@@ -14,9 +14,10 @@
   --lunari-neutral-400: #8a8d96;
   --lunari-neutral-500: #5d6068;
 
-  /* gen-specific */
-  --gen-accent: #7a1528;
-  --gen-accent-soft: #7a152833;
+  /* gen-specific ... forest green is gen's canon color ("the closer"), not the
+     old burgundy (a corrected AGENT_COLORS error from the lunari v17.7.x docs). */
+  --gen-accent: #2d5f3f;
+  --gen-accent-soft: #2d5f3f33;
 
   /* motion */
   --motion-duration: 300ms;
