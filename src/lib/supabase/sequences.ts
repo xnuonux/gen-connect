@@ -74,12 +74,16 @@ export async function getSequence(id: string): Promise<SequenceRecord | null> {
   return { ...summarize(r), graph: graphOf(r.graph) };
 }
 
-// a fresh sequence opens with a single start node ... the editor builds onward.
-export async function createSequence(name: string): Promise<SequenceRecord | null> {
+// a fresh sequence opens with a single start node by default ... or a starter
+// template graph when one is passed (resolved + validated server-side by the action).
+export async function createSequence(
+  name: string,
+  startGraph?: SequenceGraph,
+): Promise<SequenceRecord | null> {
   const uid = await userId();
   if (!uid) return null;
   const supabase = await createClient();
-  const graph: SequenceGraph = {
+  const graph: SequenceGraph = startGraph ?? {
     nodes: [
       { id: "start", type: "start", position: { x: 240, y: 40 }, data: {} },
     ],

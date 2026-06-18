@@ -11,6 +11,7 @@ import {
   enrollContacts,
 } from "@/lib/supabase/sequences";
 import { validateGraph } from "@/lib/sequences/validate";
+import { templateById } from "@/lib/sequences/templates";
 import {
   NODE_KINDS,
   type SequenceGraph,
@@ -48,6 +49,7 @@ export type CreateSequenceResult =
 
 export async function createSequenceAction(
   name: string,
+  templateId?: string,
 ): Promise<CreateSequenceResult> {
   const user = await requireUser();
   if (!user) return { ok: false, error: "sign in to build a sequence ..." };
@@ -55,8 +57,14 @@ export async function createSequenceAction(
   const clean = z.string().trim().min(1).max(80).safeParse(name);
   const finalName = clean.success ? clean.data : "untitled sequence";
 
+  // resolve the template server-side from its id ... never trust a client-sent graph.
+  // a blank/unknown id falls through to the default single-start graph.
+  const template = templateId ? templateById(templateId) : undefined;
+  const startGraph =
+    template && template.id !== "blank" ? template.graph : undefined;
+
   try {
-    const sequence = await createSequence(finalName);
+    const sequence = await createSequence(finalName, startGraph);
     if (!sequence) {
       return { ok: false, error: "couldn't start that sequence ... try again." };
     }

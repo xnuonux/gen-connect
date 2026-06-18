@@ -42,6 +42,10 @@ import {
 } from "@/lib/sequences/spintax";
 import { compileRun, type CompiledStep } from "@/lib/sequences/compile";
 import {
+  SEQUENCE_TEMPLATES,
+  type SequenceTemplate,
+} from "@/lib/sequences/templates";
+import {
   fetchSequences,
   getSequenceAction,
   createSequenceAction,
@@ -353,6 +357,7 @@ export function SequenceEditor({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [picking, setPicking] = useState(false);
   const loadedRef = useRef<string | null>(initialActive?.id ?? null);
   // the last-saved fingerprint ... seeded from the initial canvas so a first
   // switch never falsely reads as dirty.
@@ -463,8 +468,8 @@ export function SequenceEditor({
   );
 
   const create = useMutation({
-    mutationFn: async () => {
-      const r = await createSequenceAction("untitled sequence");
+    mutationFn: async (tpl: { id: string; name: string }) => {
+      const r = await createSequenceAction(tpl.name, tpl.id);
       if (!r.ok) throw new Error(r.error);
       return r.sequence;
     },
@@ -478,6 +483,14 @@ export function SequenceEditor({
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "couldn't create that ..."),
   });
+
+  function pickTemplate(t: SequenceTemplate) {
+    setPicking(false);
+    create.mutate({
+      id: t.id,
+      name: t.id === "blank" ? "untitled sequence" : t.name,
+    });
+  }
 
   const save = useMutation({
     mutationFn: async (nextStatus: SequenceStatus | undefined) => {
@@ -518,10 +531,12 @@ export function SequenceEditor({
   const saveRef = useRef(save);
   const activeIdRef = useRef(activeId);
   const showPreviewRef = useRef(showPreview);
+  const pickingRef = useRef(picking);
   useEffect(() => {
     saveRef.current = save;
     activeIdRef.current = activeId;
     showPreviewRef.current = showPreview;
+    pickingRef.current = picking;
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -537,9 +552,11 @@ export function SequenceEditor({
           (el.tagName === "INPUT" ||
             el.tagName === "TEXTAREA" ||
             el.tagName === "SELECT");
-        // when the run-preview modal is open, escape belongs to it ... don't also
-        // tear down the node inspector behind it.
-        if (!typing && !showPreviewRef.current) setSelectedId(null);
+        // when a modal (preview / template picker) is open, escape belongs to it ...
+        // don't also tear down the node inspector behind it.
+        if (!typing && !showPreviewRef.current && !pickingRef.current) {
+          setSelectedId(null);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -561,11 +578,11 @@ export function SequenceEditor({
   function requestCreate() {
     if (activeId && snap(graph, name) !== snapshotRef.current) {
       toast("unsaved edits ... discard them and start fresh?", {
-        action: { label: "discard", onClick: () => create.mutate() },
+        action: { label: "discard", onClick: () => setPicking(true) },
       });
       return;
     }
-    create.mutate();
+    setPicking(true);
   }
   function tidy() {
     setNodes((nds) => autoLayout(nds, edges));
@@ -816,6 +833,82 @@ export function SequenceEditor({
       {showPreview ? (
         <RunPreview graph={graph} onClose={() => setShowPreview(false)} />
       ) : null}
+
+      {picking ? (
+        <TemplatePicker onClose={() => setPicking(false)} onPick={pickTemplate} />
+      ) : null}
+    </div>
+  );
+}
+
+// the starter picker ... blank or a closer-instinct template, each pre-filled with
+// spintax + signal/voice slots so the wedge shows the instant a sequence is born.
+function TemplatePicker({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (t: SequenceTemplate) => void;
+}) {
+  const firstRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    firstRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="close"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-lunari-black/70 backdrop-blur-sm"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="start a sequence"
+        className="reveal-up relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70"
+      >
+        <div className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <Plus className="h-4 w-4 stroke-[1.25] text-gen-accent" />
+            <span className="text-sm text-lunari-cream">start a sequence</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="close"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-lunari-neutral-400 hover:bg-lunari-surface-elevated"
+          >
+            <X className="h-4 w-4 stroke-[1.25]" />
+          </button>
+        </div>
+        <div className="flex-1 space-y-2 overflow-y-auto px-5 py-4">
+          {SEQUENCE_TEMPLATES.map((t, i) => (
+            <button
+              key={t.id}
+              ref={i === 0 ? firstRef : undefined}
+              type="button"
+              onClick={() => onPick(t)}
+              className="planetarium block w-full rounded-lg border border-lunari-surface-elevated bg-lunari-black/40 px-3 py-2.5 text-left hover:border-gen-accent hover:bg-lunari-surface-elevated"
+            >
+              <div className="text-sm text-lunari-cream">{t.name}</div>
+              <div className="mt-0.5 text-[11px] leading-relaxed text-lunari-neutral-400">
+                {t.description}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
