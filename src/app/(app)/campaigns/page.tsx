@@ -33,7 +33,7 @@ export default async function CampaignsPage() {
           cta={{ href: "/sequences", label: "open the sequence editor" }}
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-lunari-surface-elevated bg-lunari-surface">
+        <div className="surface-raised overflow-hidden rounded-lg border border-lunari-surface-elevated bg-lunari-surface">
           <div className="grid grid-cols-12 gap-2 border-b border-lunari-surface-elevated px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] text-lunari-neutral-500">
             <span className="col-span-5">campaign</span>
             <span className="col-span-2">status</span>

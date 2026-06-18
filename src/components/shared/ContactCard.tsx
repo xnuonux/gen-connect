@@ -44,8 +44,8 @@ export function ContactCard({
   return (
     <div
       className={cn(
-        "planetarium select-none rounded-md border bg-lunari-surface p-3",
-        "border-lunari-surface-elevated hover:bg-lunari-surface-elevated",
+        "planetarium surface-raised select-none rounded-md border bg-lunari-surface p-3",
+        "border-lunari-surface-elevated hover:-translate-y-px hover:bg-lunari-surface-elevated",
         selected && "border-gen-accent ring-1 ring-gen-accent",
         dragging && "rotate-[1deg] shadow-xl shadow-lunari-black/70",
         className,

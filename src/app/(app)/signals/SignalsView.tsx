@@ -210,7 +210,7 @@ function HitCard({ hit }: { hit: SignalHitRow }) {
   });
 
   return (
-    <div className="planetarium rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4 hover:border-gen-accent/30">
+    <div className="planetarium surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4 hover:-translate-y-px hover:border-gen-accent/30">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -329,7 +329,7 @@ function AgentCard({ agent }: { agent: SignalAgent }) {
   const active = agent.status === "active";
 
   return (
-    <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm text-lunari-cream">{agent.name}</div>

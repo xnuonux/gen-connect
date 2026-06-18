@@ -69,7 +69,7 @@ function MonoLabel({ children }: { children: React.ReactNode }) {
 
 function VolumeCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
       <MonoLabel>{label}</MonoLabel>
       <div className="mt-2 font-mono text-2xl tabular-nums text-lunari-cream">
         {value.toLocaleString("en-US")}
@@ -90,7 +90,7 @@ export default async function DeliverabilityPage() {
       />
 
       {/* send mode banner */}
-      <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+      <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="h-4 w-4 stroke-[1.25] text-lunari-neutral-400" />
@@ -128,7 +128,7 @@ export default async function DeliverabilityPage() {
       </div>
 
       {/* readiness checklist ... honest live/pending status */}
-      <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+      <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
         <div className="flex items-center gap-2.5">
           <MonoLabel>pre-send readiness</MonoLabel>
         </div>
@@ -169,7 +169,7 @@ export default async function DeliverabilityPage() {
       </div>
 
       {/* the warmup ramp */}
-      <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+      <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
         <MonoLabel>warmup ramp</MonoLabel>
         <p className="mt-1 text-[11px] text-lunari-neutral-500">
           the daily cap a new inbox follows before it sends at full volume.
@@ -192,7 +192,7 @@ export default async function DeliverabilityPage() {
       </div>
 
       {/* sending identity + the honest deferral */}
-      <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+      <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
         <div className="flex items-center gap-2.5">
           <Globe className="h-4 w-4 stroke-[1.25] text-lunari-neutral-400" />
           <MonoLabel>sending domain</MonoLabel>

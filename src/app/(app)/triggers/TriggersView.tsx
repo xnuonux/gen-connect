@@ -123,7 +123,7 @@ function TriggerCard({ trigger }: { trigger: Trigger }) {
   const dryRun = trigger.status === "dry_run";
 
   return (
-    <div className="rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
