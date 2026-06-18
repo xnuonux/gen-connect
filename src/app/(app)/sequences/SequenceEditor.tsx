@@ -31,6 +31,7 @@ import {
   Trash2,
   X,
   Wand2,
+  Eye,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -39,6 +40,7 @@ import {
   spintaxCombos,
   SLOT_TOKENS,
 } from "@/lib/sequences/spintax";
+import { compileRun, type CompiledStep } from "@/lib/sequences/compile";
 import {
   fetchSequences,
   getSequenceAction,
@@ -350,6 +352,7 @@ export function SequenceEditor({
   const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
   const loadedRef = useRef<string | null>(initialActive?.id ?? null);
   // the last-saved fingerprint ... seeded from the initial canvas so a first
   // switch never falsely reads as dirty.
@@ -672,6 +675,14 @@ export function SequenceEditor({
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => setShowPreview(true)}
+                  className="planetarium flex items-center gap-1.5 rounded-md border border-lunari-surface-elevated px-3 py-1.5 text-xs text-lunari-cream/90 hover:bg-lunari-surface-elevated"
+                >
+                  <Eye className="h-3.5 w-3.5 stroke-[1.25]" />
+                  <span>preview run</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => save.mutate(undefined)}
                   disabled={save.isPending}
                   className="planetarium rounded-md border border-lunari-surface-elevated px-3 py-1.5 text-xs text-lunari-cream/90 hover:bg-lunari-surface-elevated disabled:opacity-50"
@@ -797,7 +808,117 @@ export function SequenceEditor({
           </>
         )}
       </div>
+
+      {showPreview ? (
+        <RunPreview graph={graph} onClose={() => setShowPreview(false)} />
+      ) : null}
     </div>
+  );
+}
+
+const STEP_ICON: Record<NodeKind, LucideIcon> = KIND_ICON;
+
+// the run preview ... the personalized journey a contact would actually walk, with
+// spintax + slots resolved (sample values) and real cumulative timing. computed by
+// the pure compiler, so what you see here is what the deferred worker will run.
+function RunPreview({
+  graph,
+  onClose,
+}: {
+  graph: SequenceGraph;
+  onClose: () => void;
+}) {
+  const run = useMemo(() => compileRun(graph), [graph]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="close"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-lunari-black/70 backdrop-blur-sm"
+      />
+      <div className="reveal-up relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70">
+        <div className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4 stroke-[1.25] text-gen-accent" />
+            <span className="text-sm text-lunari-cream">preview run</span>
+            <span className="font-mono text-[10px] text-lunari-neutral-500">
+              · sample values
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="close"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-lunari-neutral-400 hover:bg-lunari-surface-elevated"
+          >
+            <X className="h-4 w-4 stroke-[1.25]" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {run.steps.length === 0 ? (
+            <p className="py-8 text-center text-sm text-lunari-neutral-400">
+              {run.note ?? "nothing to run yet ... wire a send onto start."}
+            </p>
+          ) : (
+            <ol className="space-y-3">
+              {run.steps.map((step, i) => (
+                <RunStep key={step.nodeId + i} step={step} last={i === run.steps.length - 1} />
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div className="border-t border-lunari-surface-elevated px-5 py-3">
+          {run.reachedEnd ? (
+            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-lunari-neutral-500">
+              the heaviest path ... {run.steps.length} steps to end
+            </span>
+          ) : (
+            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-lunari-gold">
+              {run.note ?? "this path doesn't reach an end yet."}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RunStep({ step, last }: { step: CompiledStep; last: boolean }) {
+  const Icon = STEP_ICON[step.kind];
+  return (
+    <li className="flex gap-3">
+      <div className="flex flex-col items-center">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-lunari-surface-elevated bg-lunari-black">
+          <Icon className="h-3.5 w-3.5 stroke-[1.25] text-lunari-neutral-400" />
+        </span>
+        {last ? null : <span className="mt-1 w-px flex-1 bg-lunari-surface-elevated" />}
+      </div>
+      <div className="min-w-0 flex-1 pb-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="truncate text-sm text-lunari-cream">{step.title}</span>
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-lunari-neutral-500">
+            {step.offsetLabel}
+          </span>
+        </div>
+        {step.detail ? (
+          <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-lunari-neutral-400">
+            {step.detail}
+          </p>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
