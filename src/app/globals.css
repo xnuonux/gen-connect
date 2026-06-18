@@ -129,3 +129,26 @@
     animation: none;
   }
 }
+
+/* the xyflow zoom controls ... the one canvas chrome element that escaped the
+   token system. match the cinematic surface: lunari fills, neutral icons, a
+   planetarium hover, no light-seam. */
+.react-flow__controls {
+  box-shadow: none;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: var(--lunari-surface);
+  border-bottom: 1px solid var(--lunari-surface-elevated);
+  color: var(--lunari-neutral-400);
+  transition-duration: var(--motion-duration);
+  transition-timing-function: var(--motion-easing);
+}
+.react-flow__controls-button:hover {
+  background: var(--lunari-surface-elevated);
+  color: var(--lunari-cream);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}

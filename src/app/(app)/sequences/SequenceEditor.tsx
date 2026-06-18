@@ -30,6 +30,7 @@ import {
   Play,
   Trash2,
   X,
+  Wand2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -244,6 +245,64 @@ const EDGE_OPTIONS = {
   style: { stroke: "var(--lunari-surface-elevated)", strokeWidth: 1.5 },
 } as const;
 
+// the dirty fingerprint ... structure + name, ignoring nothing that matters. used
+// to guard a sequence switch so unsaved edits are never silently discarded.
+function snap(g: SequenceGraph, n: string): string {
+  return JSON.stringify({ nodes: g.nodes, edges: g.edges, name: n });
+}
+
+// a built-in top-to-bottom auto-layout ... bfs layers from start, spreads each
+// layer across x. no dagre dependency; reflows a tangled graph into a clean tree.
+function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
+  if (nodes.length === 0) return nodes;
+  const start = nodes.find((n) => n.type === "start") ?? nodes[0];
+  if (!start) return nodes;
+
+  const adj = new Map<string, string[]>();
+  for (const n of nodes) adj.set(n.id, []);
+  for (const e of edges) adj.get(e.source)?.push(e.target);
+
+  const depth = new Map<string, number>([[start.id, 0]]);
+  const queue = [start.id];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const d = depth.get(cur) ?? 0;
+    for (const nx of adj.get(cur) ?? []) {
+      if (!depth.has(nx)) {
+        depth.set(nx, d + 1);
+        queue.push(nx);
+      }
+    }
+  }
+  // unreached nodes settle below the deepest reached layer.
+  let maxD = 0;
+  for (const d of depth.values()) maxD = Math.max(maxD, d);
+  for (const n of nodes) {
+    if (!depth.has(n.id)) {
+      maxD += 1;
+      depth.set(n.id, maxD);
+    }
+  }
+
+  const byDepth = new Map<number, string[]>();
+  for (const n of nodes) {
+    const d = depth.get(n.id) ?? 0;
+    if (!byDepth.has(d)) byDepth.set(d, []);
+    byDepth.get(d)!.push(n.id);
+  }
+
+  const X_GAP = 250;
+  const Y_GAP = 120;
+  const pos = new Map<string, { x: number; y: number }>();
+  for (const [d, ids] of byDepth) {
+    const width = (ids.length - 1) * X_GAP;
+    ids.forEach((id, i) => {
+      pos.set(id, { x: i * X_GAP - width / 2 + 320, y: 40 + d * Y_GAP });
+    });
+  }
+  return nodes.map((n) => ({ ...n, position: pos.get(n.id) ?? n.position }));
+}
+
 export function SequenceEditor({
   initialSequences,
   initialActive,
@@ -264,6 +323,14 @@ export function SequenceEditor({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const loadedRef = useRef<string | null>(initialActive?.id ?? null);
+  // the last-saved fingerprint ... seeded from the initial canvas so a first
+  // switch never falsely reads as dirty.
+  const snapshotRef = useRef<string>(
+    snap(
+      fromFlow(initialFlow.nodes, initialFlow.edges),
+      initialActive?.name ?? "",
+    ),
+  );
 
   const { data: sequences = [] } = useQuery({
     queryKey: ["sequences"],
@@ -291,6 +358,7 @@ export function SequenceEditor({
       setName(activeRecord.name);
       setSelectedId(null);
       loadedRef.current = activeRecord.id;
+      snapshotRef.current = snap(activeRecord.graph, activeRecord.name);
     }
   }, [activeRecord, setNodes, setEdges]);
 
@@ -321,7 +389,7 @@ export function SequenceEditor({
       });
       setSelectedId(id);
     },
-    [setNodes],
+    [setNodes, setSelectedId],
   );
 
   const updateNodeData = useCallback(
@@ -360,7 +428,7 @@ export function SequenceEditor({
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
       setSelectedId(null);
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, setSelectedId],
   );
 
   const create = useMutation({
@@ -399,6 +467,7 @@ export function SequenceEditor({
     },
     onSuccess: (seq) => {
       loadedRef.current = seq.id;
+      snapshotRef.current = snap(seq.graph, seq.name);
       queryClient.setQueryData(["sequence", seq.id], seq);
       void queryClient.invalidateQueries({ queryKey: ["sequences"] });
       toast.success(
@@ -413,6 +482,52 @@ export function SequenceEditor({
       toast.error(e instanceof Error ? e.message : "couldn't save ..."),
   });
 
+  // keep latest save + activeId reachable from the window keydown listener
+  // without re-subscribing every render.
+  const saveRef = useRef(save);
+  const activeIdRef = useRef(activeId);
+  useEffect(() => {
+    saveRef.current = save;
+    activeIdRef.current = activeId;
+  });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (activeIdRef.current) saveRef.current.mutate(undefined);
+      } else if (e.key === "Escape") {
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // a switch (or a fresh create) discards the canvas ... guard unsaved edits
+  // behind a one-tap dom-voice confirm instead of losing them silently.
+  function requestSwitch(id: string) {
+    if (id === activeId) return;
+    if (snap(graph, name) !== snapshotRef.current) {
+      toast("unsaved edits ... discard them and switch?", {
+        action: { label: "discard", onClick: () => setActiveId(id) },
+      });
+      return;
+    }
+    setActiveId(id);
+  }
+  function requestCreate() {
+    if (activeId && snap(graph, name) !== snapshotRef.current) {
+      toast("unsaved edits ... discard them and start fresh?", {
+        action: { label: "discard", onClick: () => create.mutate() },
+      });
+      return;
+    }
+    create.mutate();
+  }
+  function tidy() {
+    setNodes((nds) => autoLayout(nds, edges));
+  }
+
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null;
   const noneYet = sequences.length === 0 && !activeId;
 
@@ -426,7 +541,7 @@ export function SequenceEditor({
           </span>
           <button
             type="button"
-            onClick={() => create.mutate()}
+            onClick={requestCreate}
             disabled={create.isPending}
             aria-label="new sequence"
             className="planetarium flex h-6 w-6 items-center justify-center rounded-md text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream disabled:opacity-40"
@@ -437,7 +552,7 @@ export function SequenceEditor({
         <div className="flex-1 overflow-y-auto p-2">
           {sequences.length === 0 ? (
             <p className="px-2 py-6 text-center text-xs text-lunari-neutral-500">
-              no sequences yet.
+              no sequences yet ... hit + to start one.
             </p>
           ) : (
             <ul className="space-y-1">
@@ -445,7 +560,7 @@ export function SequenceEditor({
                 <li key={s.id}>
                   <button
                     type="button"
-                    onClick={() => setActiveId(s.id)}
+                    onClick={() => requestSwitch(s.id)}
                     className={cn(
                       "planetarium w-full rounded-md px-2.5 py-2 text-left",
                       s.id === activeId
@@ -491,7 +606,7 @@ export function SequenceEditor({
             </p>
             <button
               type="button"
-              onClick={() => create.mutate()}
+              onClick={requestCreate}
               disabled={create.isPending}
               className="planetarium flex items-center gap-2 rounded-md bg-gen-accent px-3 py-2 text-sm font-medium text-lunari-cream hover:bg-gen-accent/90 disabled:opacity-50"
             >
@@ -591,6 +706,7 @@ export function SequenceEditor({
                             type="button"
                             onClick={() => addNode(kind)}
                             title={`add ${kind}`}
+                            aria-label={`add ${kind} node`}
                             className="planetarium flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream"
                           >
                             <Icon className="h-3.5 w-3.5 stroke-[1.25]" />
@@ -598,6 +714,17 @@ export function SequenceEditor({
                           </button>
                         );
                       })}
+                      <span className="mx-0.5 h-4 w-px bg-lunari-surface-elevated" />
+                      <button
+                        type="button"
+                        onClick={tidy}
+                        title="auto-layout"
+                        aria-label="auto-layout the canvas"
+                        className="planetarium flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-lunari-neutral-400 hover:bg-lunari-surface-elevated hover:text-lunari-cream"
+                      >
+                        <Wand2 className="h-3.5 w-3.5 stroke-[1.25]" />
+                        <span>tidy</span>
+                      </button>
                     </div>
                   </Panel>
                   {issues.length > 0 ? (
@@ -953,7 +1080,7 @@ function NodeInspector({
   const Icon = KIND_ICON[kind];
 
   return (
-    <aside className="flex w-[320px] shrink-0 flex-col border-l border-lunari-surface-elevated bg-lunari-surface">
+    <aside className="reveal-up flex w-[320px] shrink-0 flex-col border-l border-lunari-surface-elevated bg-lunari-surface">
       <div className="flex items-center gap-2 border-b border-lunari-surface-elevated px-4 py-3.5">
         <Icon className="h-4 w-4 stroke-[1.25] text-gen-accent" />
         <span className="text-sm text-lunari-cream">{NODE_LABELS[kind]} node</span>
