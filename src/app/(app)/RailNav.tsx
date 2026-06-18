@@ -10,6 +10,7 @@ import {
   GitBranch,
   Zap,
   Workflow,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -21,6 +22,7 @@ const tabs = [
   { href: "/campaigns", label: "campaigns", icon: GitBranch },
   { href: "/triggers", label: "triggers", icon: Zap },
   { href: "/sequences", label: "sequences", icon: Workflow },
+  { href: "/deliverability", label: "deliverability", icon: ShieldCheck },
 ] as const;
 
 // the left-rail nav. client-only so it can light the active tab off the path.
@@ -52,7 +54,7 @@ export function RailNav() {
         return (
           <Link
             key={tab.href}
-            href={tab.href}
+            href={tab.href as Route}
             aria-current={on ? "page" : undefined}
             className={cn(
               "planetarium relative flex items-center gap-3 px-3 py-2 rounded-md text-sm",
