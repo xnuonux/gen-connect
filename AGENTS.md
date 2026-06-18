@@ -15,7 +15,7 @@ next.js 15 (app router, src dir, react 19) ... tailwind v4 ... shadcn ... supaba
 - every table has RLS enabled. policy: `using (user_id = auth.uid())`
 - zod schemas are the contract. validate every external boundary
 - never use em-dashes. use `...` for pauses
-- gen burgundy `#7a1528` reserved for gen-authored content only
+- gen forest green `#2d5f3f` reserved for gen-authored content only
 
 ## ai model routing
 

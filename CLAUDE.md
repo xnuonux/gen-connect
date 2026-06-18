@@ -10,7 +10,7 @@ clay charges enterprise money for enrichment but has no opinion. apollo is a dat
 
 ## how
 
-next.js 15 + react 19 app. shadcn for UI, xyflow for the visual sequence editor, twentyhq/twenty patterns for the record table, makeplane/plane patterns for kanban. lunari design tokens with GEN's burgundy ambition accent `#7a1528`. supabase for contacts, sequences, replies, signals. crawl4ai for scraping. resend or sendgrid for sending (deliverability call lives in the spec). claude sonnet for drafting, opus for 5-angle synthesis. pg-boss for sequence orchestration. cal.com embed for booking conversion.
+next.js 15 + react 19 app. shadcn for UI, xyflow for the visual sequence editor, twentyhq/twenty patterns for the record table, makeplane/plane patterns for kanban. lunari design tokens with GEN's forest-green canon accent `#2d5f3f`. supabase for contacts, sequences, replies, signals. crawl4ai for scraping. resend or sendgrid for sending (deliverability call lives in the spec). claude sonnet for drafting, opus for 5-angle synthesis. pg-boss for sequence orchestration. cal.com embed for booking conversion.
 
 ## scope in
 
@@ -39,7 +39,7 @@ next.js 15 + react 19 app. shadcn for UI, xyflow for the visual sequence editor,
 - run `pnpm typecheck` after every change.
 - prefer server actions over api routes for mutations.
 - supabase queries go through `src/lib/supabase/` ... never inline.
-- gen accent (burgundy `#7a1528`) only for gen-authored content.
+- gen accent (forest green `#2d5f3f`) only for gen-authored content.
 - never ship a draft that hasn't passed voice-keeper
 - never bypass the self-judge loop on 5-angle generation
 - always show confidence scores on inline replies in the unibox
@@ -54,7 +54,7 @@ GEN's drafting tone is a human closer who wants the meeting, not a SaaS template
 ## stack
 
 - next.js 15 + react 19 (app router, src dir)
-- tailwind v4 + lunari tokens + GEN burgundy accent
+- tailwind v4 + lunari tokens + GEN forest-green accent
 - shadcn (table, button, input, dialog, dropdown, popover, sheet, card, badge, tabs)
 - @xyflow/react for the sequence editor
 - @tanstack/react-table for pipeline view

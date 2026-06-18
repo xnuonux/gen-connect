@@ -89,7 +89,7 @@ return strict JSON matching the angle schema.
 
 ## the display
 
-UI surfaces all 5 angles as cards. winner badged in burgundy. each card shows:
+UI surfaces all 5 angles as cards. winner badged in forest green. each card shows:
 - angle type label (mono, tracked uppercase)
 - subject + body preview
 - confidence chip (1-10 flame + the angle name)

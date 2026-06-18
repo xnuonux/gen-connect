@@ -1,6 +1,6 @@
 ---
 name: lunari-design-tokens
-description: Use whenever writing CSS, Tailwind classes, or styling components. Enforces lunari design tokens, no raw hex, gen burgundy accent reserved for gen-authored content only.
+description: Use whenever writing CSS, Tailwind classes, or styling components. Enforces lunari design tokens, no raw hex, gen forest-green accent reserved for gen-authored content only.
 ---
 
 # lunari-design-tokens
@@ -28,16 +28,16 @@ defined in `src/design/tokens.css`. consumed via tailwind classes that map to cs
 
 | token | hex | use |
 |---|---|---|
-| `--gen-accent` | `#7a1528` | gen-authored content marker, primary CTAs |
-| `--gen-accent-soft` | `#7a152833` | hover, focus, soft fills |
+| `--gen-accent` | `#2d5f3f` | gen-authored content marker, primary CTAs (forest green, gen's canon) |
+| `--gen-accent-soft` | `#2d5f3f33` | hover, focus, soft fills |
 
 ## the rules
 
 1. **no raw hex in components.** every color comes from tokens via tailwind classes.
-   - bad: `<div className="bg-[#7a1528]">`
+   - bad: `<div className="bg-[#2d5f3f]">`
    - good: `<div className="bg-gen-accent">`
 2. **gold is sacred.** one gold accent per screen. if you want a second, use neutral instead.
-3. **burgundy is gen's signature.** only used for:
+3. **forest green is gen's signature.** only used for:
    - the gen-authored content marker on drafts and replies
    - the primary CTA on the landing page
    - the confidence chip in the unibox

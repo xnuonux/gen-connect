@@ -2,7 +2,7 @@ import { Flame } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
 // a contact's warmth (or a draft's heat), 0 to 10 ... rendered as a flame whose
-// fill + opacity track the score. burgundy and gold stay reserved, so warmth
+// fill + opacity track the score. forest green and gold stay reserved, so warmth
 // reads in neutral cream intensity, not color. a 7+ score fills the glyph solid.
 export function FlameScore({
   score,

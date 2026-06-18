@@ -8,7 +8,7 @@ import { filterCommands, type PaletteCommand } from "@/lib/commands/registry";
 
 // the cmd+K command palette ... the keyboard twin of the copilot. hand-rolled
 // (no cmdk dep) for full token control + react 19 safety. opens on cmd/ctrl+K,
-// filters the registry, arrows move, enter runs, esc closes. burgundy ring only
+// filters the registry, arrows move, enter runs, esc closes. forest-green ring only
 // on gen-authored actions, never on nav.
 export function CommandPalette() {
   const router = useRouter();

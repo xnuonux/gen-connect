@@ -9,7 +9,7 @@ export type PaletteCommand = {
   group: "go to" | "do";
   href: Route;
   hint?: string;
-  // gen-authored surfaces wear the burgundy ring; nav stays neutral.
+  // gen-authored surfaces wear the forest-green ring; nav stays neutral.
   gen?: boolean;
   // extra substrings the fuzzy match should catch beyond the label.
   keywords?: string;

@@ -19,16 +19,16 @@ defined in `src/design/tokens.css`. consumed via tailwind classes (no raw hex in
 - `--lunari-neutral-500` `#5d6068` ... tertiary
 
 ### gen-specific
-- `--gen-accent` `#7a1528` ... burgundy. gen-authored content marker.
-- `--gen-accent-soft` `#7a152833` ... hover, focus, soft fill
+- `--gen-accent` `#2d5f3f` ... forest green (gen's canon color, "the closer"). gen-authored content marker.
+- `--gen-accent-soft` `#2d5f3f33` ... hover, focus, soft fill
 
 ## the gold rule
 
 one gold accent per screen. the highest-scoring card. the deliverability alert. the win celebration pulse. never decorate with gold.
 
-## the burgundy rule
+## the forest-green rule
 
-`--gen-accent` is gen's signature, not a brand color. it shows up on:
+`--gen-accent` (forest green) is gen's signature, not a brand color. it shows up on:
 1. the gen-authored content marker on drafts and replies
 2. the primary CTA on the landing page
 3. the confidence chip in the unibox

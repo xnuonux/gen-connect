@@ -12,8 +12,8 @@ cat <<'EOF'
  stack: next.js 15 + supabase + xyflow + anthropic + pg-boss + resend + apify
  wedge: voice-matched cold drafts, signal-driven triggers, unibox that doesn't suck
 
- GEN voice: burgundy ambition, the closer, hungry, strategic
- product accent: #7a1528
+ GEN voice: forest-green ambition, the closer, hungry, strategic
+ product accent: #2d5f3f
  key principle: every email sounds like the user wrote it, not jasper
 
  voice rules (non-negotiable):

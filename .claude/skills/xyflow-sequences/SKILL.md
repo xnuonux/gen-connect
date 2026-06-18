@@ -104,7 +104,7 @@ every save creates a new entry in `sequence_versions`. enrolled contacts finish 
 
 ## the styling
 
-every node uses lunari tokens. burgundy accent on the selected node's border. gold ring on the highest-performing variant after stats land. controls panel matches sidebar styling.
+every node uses lunari tokens. forest-green accent on the selected node's border. gold ring on the highest-performing variant after stats land. controls panel matches sidebar styling.
 
 ```ts
 const nodeStyle = {

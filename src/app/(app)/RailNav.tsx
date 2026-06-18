@@ -26,9 +26,9 @@ const tabs = [
 ] as const;
 
 // the left-rail nav. client-only so it can light the active tab off the path.
-// burgundy stays off navigation (it is gen's content signature, not a nav
+// forest green stays off navigation (it is gen's content signature, not a nav
 // accent) ... the active tab reads in elevated surface + a neutral left bar.
-// the gen link is the one exception: it IS a gen surface, so it wears burgundy.
+// the gen link is the one exception: it IS a gen surface, so it wears the green.
 export function RailNav() {
   const pathname = usePathname();
   const active = (href: string) =>

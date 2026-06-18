@@ -79,7 +79,7 @@ function LinkRow({ link }: { link: ContactPresenceLink }) {
 }
 
 // log-a-win: a compact collapsible. dollar amount + outcome type ... feeds the
-// "$X in opportunities" hero. burgundy on the submit (a gen-authored win moment).
+// "$X in opportunities" hero. forest green on the submit (a gen-authored win moment).
 function LogWinForm({
   onLogWin,
   logging,
@@ -176,7 +176,7 @@ type ContactDrawerPanelProps = {
 // the presentational side drawer: scrim + a right-anchored panel with a sticky
 // header, a scrollable middle, and a sticky draft-outreach footer. all data +
 // handlers come in as props ... the container (ContactDrawer) owns the fetch +
-// the resolve mutation. lunari tokens only, burgundy reserved for gen actions +
+// the resolve mutation. lunari tokens only, forest green reserved for gen actions +
 // the gen-authored hook, gold untouched.
 export function ContactDrawerPanel({
   detail,
@@ -309,7 +309,7 @@ export function ContactDrawerPanel({
             )}
           </section>
 
-          {/* the hook ... gen-authored material the drafter opens with. burgundy
+          {/* the hook ... gen-authored material the drafter opens with. forest green
               marks gen-authored content per the design system. */}
           {detail.hook ? (
             <section className="space-y-2">

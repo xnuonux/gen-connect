@@ -68,7 +68,7 @@
     animation: gen-reveal-up var(--motion-duration) var(--motion-easing) both;
   }
 
-  /* the cinematic canvas ... what turns flat black into depth. a soft burgundy
+  /* the cinematic canvas ... what turns flat black into depth. a soft forest-green
      bloom from the top (gen's signature), a faint gold glow off the top-right (the
      lunar moment), and a surface lift from the floor. fixed, so the light stays put
      while inner panes scroll. applied to the full-viewport backgrounds only. */
@@ -119,7 +119,7 @@
   }
 }
 
-/* the win celebration ... a burgundy core that blooms to a single gold ring,
+/* the win celebration ... a forest-green core that blooms to a single gold ring,
    the one allowed gold-per-screen moment. opacity + transform only (GPU). */
 @keyframes gen-win-ring {
   0% {

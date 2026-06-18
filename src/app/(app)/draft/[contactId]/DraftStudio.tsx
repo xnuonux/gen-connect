@@ -104,7 +104,7 @@ export function DraftStudio({
     }
     setDraft(result.draft);
     setPicked(result.draft.winning_angle_id);
-    toast.success("five angles in. winner badged in burgundy.");
+    toast.success("five angles in. winner badged in green.");
   }
 
   async function onPick(angle: DraftAngleRecord) {

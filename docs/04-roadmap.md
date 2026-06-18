@@ -32,7 +32,7 @@ shipped by sunday:
 - /api/drafts endpoint (opus 4.7 5-angle generation, structured output)
 - self-judge loop (opus second pass, scores 5 axes)
 - drafts + draft_angles + draft_judge_scores tables
-- UI: 5-angle card view, winner badged in burgundy, user override flow
+- UI: 5-angle card view, winner badged in forest green, user override flow
 - draft_outcomes writes on send/open/reply/book
 - anti-pattern regex check (no em-dashes, no forbidden phrases)
 

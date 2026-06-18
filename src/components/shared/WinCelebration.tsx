@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 
 // the win celebration ... the one decorative gold moment the design system
-// reserves for booked + closed. a burgundy core blooms into a single gold ring
+// reserves for booked + closed. a forest-green core blooms into a single gold ring
 // and a one-line gen quote, then clears itself. pointer-events-none so it never
 // blocks the click underneath. reduced-motion users get the toast, not the bloom.
 const QUOTES = [
