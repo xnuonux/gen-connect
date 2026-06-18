@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Zap, Plus, X, Pause, Play, FlaskConical, Sparkles } from "lucide-react";
@@ -200,6 +200,16 @@ function TriggerBuilder({
     queryKey: ["sequences"],
     queryFn: fetchSequences,
   });
+
+  // esc dismisses the modal ... matches the sequences inspector + the design-system
+  // "esc closes" rule (the confirm pass flagged this as the one a11y inconsistency).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const condition: TriggerCondition = useMemo(() => {
     const c: TriggerCondition = {
