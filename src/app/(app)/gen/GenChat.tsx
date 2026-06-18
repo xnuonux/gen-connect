@@ -5,6 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { Sparkles, ArrowUp, Check, Circle } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { Markdown } from "@/components/shared/Markdown";
 import { fetchGenThread } from "@/app/actions/gen";
 
 type PlanStep = { label: string; status: "pending" | "active" | "done" };
@@ -202,17 +203,18 @@ function MessageRow({ message }: { message: UIMessage }) {
 
       {parts.map((part, i) => {
         if (part.type === "text" && part.text) {
-          return (
+          // gen replies render as markdown (tables, bold, lists ... the draft
+          // scorecards become real tables); the user's own text stays verbatim.
+          return isUser ? (
             <div
               key={i}
-              className={cn(
-                "max-w-[85%] whitespace-pre-wrap rounded-md px-3 py-2 text-sm leading-relaxed",
-                isUser
-                  ? "bg-lunari-surface-elevated text-lunari-cream"
-                  : "text-lunari-cream",
-              )}
+              className="max-w-[85%] whitespace-pre-wrap rounded-md bg-lunari-surface-elevated px-3 py-2 text-sm leading-relaxed text-lunari-cream"
             >
               {part.text}
+            </div>
+          ) : (
+            <div key={i} className="w-full px-1 text-lunari-cream">
+              <Markdown text={part.text} />
             </div>
           );
         }
