@@ -257,6 +257,9 @@ function stableStringify(v: unknown): string {
   return (
     "{" +
     Object.keys(obj)
+      // drop undefined-valued keys ... postgres omits them on the jsonb echo, so
+      // hashing them would reintroduce a false-dirty if a field ever goes undefined.
+      .filter((k) => obj[k] !== undefined)
       .sort()
       .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
       .join(",") +
@@ -1042,6 +1045,7 @@ function SendFields({
           >
             a {primaryWeight}%
             {variants.map((v, i) => ` · ${String.fromCharCode(98 + i)} ${v.weight}%`).join("")}
+            {extraSum > 100 ? ` · over by ${extraSum - 100}` : ""}
           </span>
         </div>
         <div className="mt-1 space-y-2">
