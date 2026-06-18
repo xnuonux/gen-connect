@@ -517,9 +517,11 @@ export function SequenceEditor({
   // without re-subscribing every render.
   const saveRef = useRef(save);
   const activeIdRef = useRef(activeId);
+  const showPreviewRef = useRef(showPreview);
   useEffect(() => {
     saveRef.current = save;
     activeIdRef.current = activeId;
+    showPreviewRef.current = showPreview;
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -535,7 +537,9 @@ export function SequenceEditor({
           (el.tagName === "INPUT" ||
             el.tagName === "TEXTAREA" ||
             el.tagName === "SELECT");
-        if (!typing) setSelectedId(null);
+        // when the run-preview modal is open, escape belongs to it ... don't also
+        // tear down the node inspector behind it.
+        if (!typing && !showPreviewRef.current) setSelectedId(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -829,6 +833,7 @@ function RunPreview({
   onClose: () => void;
 }) {
   const run = useMemo(() => compileRun(graph), [graph]);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -838,6 +843,12 @@ function RunPreview({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // move focus into the dialog on open ... a keyboard/sr user lands on close, not
+  // stranded on the trigger behind the backdrop.
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <button
@@ -846,7 +857,12 @@ function RunPreview({
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-lunari-black/70 backdrop-blur-sm"
       />
-      <div className="reveal-up relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="run preview"
+        className="reveal-up relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70"
+      >
         <div className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-3.5">
           <div className="flex items-center gap-2">
             <Eye className="h-4 w-4 stroke-[1.25] text-gen-accent" />
@@ -856,6 +872,7 @@ function RunPreview({
             </span>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="close"

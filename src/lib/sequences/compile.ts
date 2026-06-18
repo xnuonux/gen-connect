@@ -64,6 +64,7 @@ export function compileRun(graph: SequenceGraph): CompiledRun {
   let cur: string | undefined = start.id;
   let offset = 0;
   let reachedEnd = false;
+  let branched = false; // did the walk follow a branch? ... changes the dead-end copy.
   let note: string | undefined;
 
   for (let i = 0; i < MAX_STEPS && cur; i += 1) {
@@ -110,7 +111,9 @@ export function compileRun(graph: SequenceGraph): CompiledRun {
     }
     if (node.type === "condition") {
       const check = str(data, "check", "opened");
-      const truthy = edges.find((e) => e.handle === "true") ?? edges[0];
+      // follow ONLY the true edge ... never fall back to the false edge while
+      // claiming "true" (an unwired true path correctly reads as a dead-end here).
+      const truthy = edges.find((e) => e.handle === "true");
       steps.push({
         nodeId: at,
         kind: "condition",
@@ -136,6 +139,7 @@ export function compileRun(graph: SequenceGraph): CompiledRun {
       });
       const handle = handles[bestIdx];
       const edge = edges.find((e) => e.handle === handle) ?? edges[0];
+      branched = true;
       steps.push({
         nodeId: at,
         kind: "branch",
@@ -157,6 +161,15 @@ export function compileRun(graph: SequenceGraph): CompiledRun {
     cur = edges[0]?.target;
   }
 
-  if (!reachedEnd && !note) note = "this path doesn't reach an end yet.";
+  if (!reachedEnd && !note) {
+    // distinguish the three not-reached cases honestly: cur still set = the 64-step
+    // cap; a branch was taken = only the heaviest slice dead-ends; otherwise the
+    // path genuinely has no end wired.
+    note = cur
+      ? "preview capped at 64 steps ... the rest isn't shown."
+      : branched
+        ? "the heaviest path dead-ends ... a lighter way may still reach an end."
+        : "this path doesn't reach an end yet.";
+  }
   return { steps, reachedEnd, note };
 }
