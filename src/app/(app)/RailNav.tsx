@@ -40,7 +40,7 @@ export function RailNav() {
         href={"/gen" as Route}
         aria-current={active("/gen") ? "page" : undefined}
         className={cn(
-          "planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-gen-accent hover:bg-gen-accent-soft",
+          "planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-gen-accent hover:translate-x-0.5 hover:bg-gen-accent-soft",
           active("/gen") && "bg-gen-accent-soft",
         )}
       >
@@ -60,7 +60,7 @@ export function RailNav() {
               "planetarium relative flex items-center gap-3 px-3 py-2 rounded-md text-sm",
               on
                 ? "bg-lunari-surface-elevated text-lunari-cream"
-                : "text-lunari-cream/80 hover:text-lunari-cream hover:bg-lunari-surface-elevated",
+                : "text-lunari-cream/80 hover:translate-x-0.5 hover:text-lunari-cream hover:bg-lunari-surface-elevated",
             )}
           >
             {on ? (

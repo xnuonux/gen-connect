@@ -186,9 +186,60 @@ export function GenChat({
   );
 }
 
+type Block =
+  | { t: "text"; text: string }
+  | { t: "plan"; steps: PlanStep[] }
+  | { t: "tool"; label: string; done: boolean; errored: boolean; detail: string; count: number };
+
+// collapse a message's parts into render blocks, merging consecutive tool markers
+// of the same label into one (gen calling draft_angles once per contact should read
+// as one "drafting 5 angles · 5x" line, not five stacked identical rows).
+function toBlocks(parts: LoosePart[]): Block[] {
+  const blocks: Block[] = [];
+  for (const part of parts) {
+    if (part.type === "text" && part.text) {
+      blocks.push({ t: "text", text: part.text });
+      continue;
+    }
+    if (part.type === "tool-plan") {
+      const out = part.output as { steps?: PlanStep[] } | undefined;
+      const steps = out?.steps ?? part.input?.steps ?? [];
+      if (steps.length) blocks.push({ t: "plan", steps });
+      continue;
+    }
+    if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
+      const name =
+        part.type === "dynamic-tool" ? (part.toolName ?? "tool") : toolName(part.type);
+      const label = TOOL_LABELS[name] ?? name;
+      const done = part.state === "output-available";
+      const errored = part.state === "output-error";
+      const out =
+        part.output && typeof part.output === "object"
+          ? (part.output as { count?: number; loaded?: number })
+          : undefined;
+      const detail =
+        out?.loaded != null
+          ? ` · ${out.loaded} loaded`
+          : out?.count != null
+            ? ` · ${out.count} found`
+            : "";
+      const prev = blocks[blocks.length - 1];
+      if (prev && prev.t === "tool" && prev.label === label) {
+        prev.count += 1;
+        prev.done = done || prev.done;
+        prev.errored = errored || prev.errored;
+        if (detail) prev.detail = detail;
+      } else {
+        blocks.push({ t: "tool", label, done, errored, detail, count: 1 });
+      }
+    }
+  }
+  return blocks;
+}
+
 function MessageRow({ message }: { message: UIMessage }) {
   const isUser = message.role === "user";
-  const parts = message.parts as unknown as LoosePart[];
+  const blocks = toBlocks(message.parts as unknown as LoosePart[]);
 
   return (
     <div className={cn("flex flex-col gap-1.5", isUser && "items-end")}>
@@ -201,8 +252,8 @@ function MessageRow({ message }: { message: UIMessage }) {
         </div>
       ) : null}
 
-      {parts.map((part, i) => {
-        if (part.type === "text" && part.text) {
+      {blocks.map((b, i) => {
+        if (b.t === "text") {
           // gen replies render as markdown (tables, bold, lists ... the draft
           // scorecards become real tables); the user's own text stays verbatim.
           return isUser ? (
@@ -210,59 +261,39 @@ function MessageRow({ message }: { message: UIMessage }) {
               key={i}
               className="max-w-[85%] whitespace-pre-wrap rounded-md bg-lunari-surface-elevated px-3 py-2 text-sm leading-relaxed text-lunari-cream"
             >
-              {part.text}
+              {b.text}
             </div>
           ) : (
             <div key={i} className="w-full px-1 text-lunari-cream">
-              <Markdown text={part.text} />
+              <Markdown text={b.text} />
             </div>
           );
         }
-        if (part.type === "tool-plan") {
-          const out = part.output as { steps?: PlanStep[] } | undefined;
-          const steps = out?.steps ?? part.input?.steps ?? [];
-          return steps.length ? <PlanChecklist key={i} steps={steps} /> : null;
+        if (b.t === "plan") {
+          return <PlanChecklist key={i} steps={b.steps} />;
         }
-        if (part.type.startsWith("tool-") || part.type === "dynamic-tool") {
-          const name =
-            part.type === "dynamic-tool"
-              ? (part.toolName ?? "tool")
-              : toolName(part.type);
-          const done = part.state === "output-available";
-          const errored = part.state === "output-error";
-          const out =
-            part.output && typeof part.output === "object"
-              ? (part.output as { count?: number; loaded?: number })
-              : undefined;
-          const detail =
-            out?.loaded != null
-              ? ` · ${out.loaded} loaded`
-              : out?.count != null
-                ? ` · ${out.count} found`
-                : "";
-          return (
-            <div
-              key={i}
-              className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-500"
-            >
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  errored
-                    ? "bg-lunari-crimson"
-                    : done
-                      ? "bg-gen-accent"
-                      : "animate-pulse bg-lunari-neutral-400",
-                )}
-              />
-              <span>
-                {TOOL_LABELS[name] ?? name}
-                {detail}
-              </span>
-            </div>
-          );
-        }
-        return null;
+        return (
+          <div
+            key={i}
+            className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-500"
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                b.errored
+                  ? "bg-lunari-crimson"
+                  : b.done
+                    ? "bg-gen-accent"
+                    : "animate-pulse bg-lunari-neutral-400",
+              )}
+            />
+            <span>
+              {b.label}
+              {b.count > 1 ? ` · ${b.count}x` : ""}
+              {b.detail}
+            </span>
+          </div>
+        );
       })}
     </div>
   );

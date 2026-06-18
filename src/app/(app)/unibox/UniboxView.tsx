@@ -186,10 +186,14 @@ export function UniboxView({
       {/* transcript + composer */}
       <section className="flex min-h-0 flex-col">
         {!selected ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-            <InboxIcon className="h-6 w-6 stroke-[1.25] text-lunari-neutral-500" />
-            <p className="text-sm text-lunari-neutral-400">
-              select a thread to read it.
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="surface-raised flex h-12 w-12 items-center justify-center rounded-full border border-lunari-surface-elevated bg-lunari-surface">
+              <InboxIcon className="h-5 w-5 stroke-[1.25] text-lunari-neutral-400" />
+            </span>
+            <p className="text-sm text-lunari-cream">select a thread to read it.</p>
+            <p className="max-w-xs text-xs leading-relaxed text-lunari-neutral-500">
+              every send lands here and every reply threads in ... pick one and gen
+              drafts the next line in your voice.
             </p>
           </div>
         ) : (
