@@ -54,6 +54,9 @@ docs/voice-corpus.md
 config/*.local.json
 .secrets/
 
+# local visual-polish tooling (playwright-core + screenshots, never committed)
+.shots/
+
 # editor
 .vscode/*
 !.vscode/settings.json

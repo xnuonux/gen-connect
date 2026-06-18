@@ -67,6 +67,45 @@
   .reveal-up {
     animation: gen-reveal-up var(--motion-duration) var(--motion-easing) both;
   }
+
+  /* the cinematic canvas ... what turns flat black into depth. a soft burgundy
+     bloom from the top (gen's signature), a faint gold glow off the top-right (the
+     lunar moment), and a surface lift from the floor. fixed, so the light stays put
+     while inner panes scroll. applied to the full-viewport backgrounds only. */
+  .lunari-canvas {
+    background-color: var(--lunari-black);
+    background-image:
+      radial-gradient(
+        115% 75% at 50% -10%,
+        color-mix(in srgb, var(--gen-accent) 13%, transparent),
+        transparent 55%
+      ),
+      radial-gradient(
+        85% 55% at 94% 2%,
+        color-mix(in srgb, var(--lunari-gold) 6%, transparent),
+        transparent 48%
+      ),
+      radial-gradient(
+        125% 95% at 50% 118%,
+        color-mix(in srgb, var(--lunari-surface) 75%, transparent),
+        transparent 60%
+      );
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  /* raised obsidian ... a hairline top highlight + a soft drop, the difference
+     between a flat card and one that sits a millimeter above the page. */
+  .surface-raised {
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, var(--lunari-cream) 5%, transparent) inset,
+      0 12px 32px -16px color-mix(in srgb, var(--lunari-black) 88%, transparent);
+  }
+
+  /* the one gold moment, lit ... a quiet glow under the hero number. */
+  .text-glow-gold {
+    text-shadow: 0 0 20px color-mix(in srgb, var(--lunari-gold) 32%, transparent);
+  }
 }
 
 @keyframes gen-reveal-up {

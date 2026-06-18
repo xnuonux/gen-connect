@@ -18,7 +18,7 @@ export default async function AppLayout({
 }) {
   const stats = await workspaceStats();
   return (
-    <div className="flex h-screen overflow-hidden bg-lunari-black text-lunari-cream">
+    <div className="lunari-canvas flex h-screen overflow-hidden text-lunari-cream">
       {/* left rail */}
       <aside className="w-60 border-r border-lunari-surface-elevated bg-lunari-surface flex flex-col">
         <div className="px-6 py-5 border-b border-lunari-surface-elevated">
@@ -58,7 +58,7 @@ export default async function AppLayout({
         {/* top bar */}
         <header className="h-12 border-b border-lunari-surface-elevated bg-lunari-surface/60 backdrop-blur flex items-center px-6">
           <div className="flex items-baseline gap-2.5">
-            <span className="font-mono text-sm font-semibold tabular-nums text-lunari-gold">
+            <span className="text-glow-gold font-mono text-lg font-semibold tabular-nums text-lunari-gold">
               {formatUsd(stats.opportunitiesCents)}
             </span>
             <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
