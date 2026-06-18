@@ -107,38 +107,53 @@ export async function saveSequence(args: {
   if (!uid) return null;
   const supabase = await createClient();
 
-  const { data: prior } = await supabase
-    .from("gc_sequences")
-    .select("version")
-    .eq("id", args.id)
-    .maybeSingle();
-  const nextVersion = (((prior as { version: number | null } | null)?.version) ?? 1) + 1;
+  // optimistic-concurrency save: read the current version, then write version+1
+  // ONLY if the row still carries that version (the .eq guard is a compare-and-set).
+  // a concurrent save (two tabs, or save-then-activate double-fire) loses the cas,
+  // so we re-read and retry rather than clobbering its graph + minting a duplicate
+  // snapshot version. bounded attempts, never an infinite loop. (a db-side atomic
+  // bump + a unique index on (sequence_id, version) is the belt-and-suspenders
+  // hardening, but this closes the lost-update window with no migration.)
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data: prior } = await supabase
+      .from("gc_sequences")
+      .select("version")
+      .eq("id", args.id)
+      .maybeSingle();
+    const priorVersion =
+      ((prior as { version: number | null } | null)?.version) ?? 1;
+    const nextVersion = priorVersion + 1;
 
-  const patch: Record<string, unknown> = {
-    graph: args.graph,
-    version: nextVersion,
-  };
-  if (args.name !== undefined) patch.name = args.name;
-  if (args.status !== undefined) patch.status = args.status;
+    const patch: Record<string, unknown> = {
+      graph: args.graph,
+      version: nextVersion,
+    };
+    if (args.name !== undefined) patch.name = args.name;
+    if (args.status !== undefined) patch.status = args.status;
 
-  const { data, error } = await supabase
-    .from("gc_sequences")
-    .update(patch)
-    .eq("id", args.id)
-    .select(COLS)
-    .single();
-  if (error || !data) throw new Error(error?.message ?? "save sequence failed");
+    const { data, error } = await supabase
+      .from("gc_sequences")
+      .update(patch)
+      .eq("id", args.id)
+      .eq("version", priorVersion)
+      .select(COLS)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) continue; // cas miss ... another writer bumped version; retry.
 
-  // snapshot (best-effort) ... a missed snapshot never blocks the save.
-  await supabase.from("gc_sequence_versions").insert({
-    user_id: uid,
-    sequence_id: args.id,
-    version: nextVersion,
-    graph: args.graph,
-  });
+    // snapshot (best-effort) ... a missed snapshot never blocks the save. the cas
+    // guarantees this version is ours, so the snapshot key never collides.
+    await supabase.from("gc_sequence_versions").insert({
+      user_id: uid,
+      sequence_id: args.id,
+      version: nextVersion,
+      graph: args.graph,
+    });
 
-  const r = data as Row;
-  return { ...summarize(r), graph: graphOf(r.graph) };
+    const r = data as Row;
+    return { ...summarize(r), graph: graphOf(r.graph) };
+  }
+  throw new Error("save raced with another tab ... refresh and try again.");
 }
 
 // enroll contacts into a sequence ... the execution spine. inserts
