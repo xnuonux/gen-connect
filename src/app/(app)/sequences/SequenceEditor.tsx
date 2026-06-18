@@ -245,15 +245,32 @@ const EDGE_OPTIONS = {
   style: { stroke: "var(--lunari-surface-elevated)", strokeWidth: 1.5 },
 } as const;
 
-// the dirty fingerprint ... structure + name, ignoring nothing that matters. used
-// to guard a sequence switch so unsaved edits are never silently discarded.
+// canonical json ... object keys sorted recursively, array order preserved. the
+// dirty fingerprint MUST be key-order-invariant: postgres normalizes jsonb keys on
+// the save echo (a send's {channel,subject,body} comes back {body,channel,subject}),
+// so a plain JSON.stringify would read a saved-untouched sequence as dirty. sorting
+// at every depth makes the live in-memory graph and the server echo hash identically.
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  const obj = v as Record<string, unknown>;
+  return (
+    "{" +
+    Object.keys(obj)
+      .sort()
+      .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+      .join(",") +
+    "}"
+  );
+}
+
+// the dirty fingerprint ... structure + name, canonicalized so key order never lies.
 function snap(g: SequenceGraph, n: string): string {
-  return JSON.stringify({ nodes: g.nodes, edges: g.edges, name: n });
+  return stableStringify({ nodes: g.nodes, edges: g.edges, name: n });
 }
 
 // reseed the fingerprint through the SAME pipeline the live compare uses
-// (fromFlow(toFlow(...))). seeding from a raw server graph instead would let
-// jsonb key-order or float drift read as falsely dirty right after a save/load.
+// (fromFlow(toFlow(...))) ... belt-and-suspenders alongside the canonical hash.
 function snapRecord(g: SequenceGraph, n: string): string {
   const f = toFlow(g);
   return snap(fromFlow(f.nodes, f.edges), n);
@@ -1067,7 +1084,7 @@ function SendFields({
               />
               {v.body.trim() ? (
                 <p className="mt-1 whitespace-pre-wrap text-[10px] leading-relaxed text-lunari-neutral-500">
-                  {renderSample(v.body, i + 1)}
+                  {renderSample(v.body, 3 + i)}
                 </p>
               ) : null}
             </div>

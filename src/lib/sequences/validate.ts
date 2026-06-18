@@ -117,11 +117,14 @@ export function validateGraph(graph: SequenceGraph): SequenceIssue[] {
         let emptyBody = false;
         for (const v of variants) {
           const o = (v ?? {}) as Record<string, unknown>;
-          if (!str(o.body)) emptyBody = true;
-          extraSum += typeof o.weight === "number" ? o.weight : 0;
+          const w = typeof o.weight === "number" ? o.weight : 0;
+          // only a weighted variant needs a body ... a fresh 0% slot is inert, so
+          // a just-added empty variant isn't instantly flagged red.
+          if (w > 0 && !str(o.body)) emptyBody = true;
+          extraSum += w;
         }
         if (emptyBody) {
-          issues.push({ nodeId: n.id, message: "a send variant has no body." });
+          issues.push({ nodeId: n.id, message: "a weighted send variant has no body." });
         }
         if (extraSum > 100) {
           issues.push({ nodeId: n.id, message: "send variant weights exceed 100." });
