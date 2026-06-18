@@ -56,6 +56,7 @@ export function PipelineTable({
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [tagText, setTagText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -95,13 +96,27 @@ export function PipelineTable({
     });
   }, [contacts, sortKey, sortDir]);
 
-  function toggle(id: string) {
+  // pick a row ... shift-click extends from the last anchor across the sorted view
+  // (the handoff's "multi-select via shift-click in table"), a plain click toggles
+  // one + moves the anchor.
+  function pick(id: string, shiftKey: boolean, index: number) {
     setPicked((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (shiftKey && anchorIndex !== null) {
+        const lo = Math.min(anchorIndex, index);
+        const hi = Math.max(anchorIndex, index);
+        for (let k = lo; k <= hi; k += 1) {
+          const rid = rows[k]?.id;
+          if (rid) next.add(rid);
+        }
+      } else if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
+    if (!shiftKey) setAnchorIndex(index);
   }
   function toggleAll() {
     setPicked((prev) =>
@@ -221,7 +236,7 @@ export function PipelineTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => {
+          {rows.map((c, i) => {
             const company = c.company?.name ?? null;
             const sel = picked.has(c.id);
             return (
@@ -242,7 +257,11 @@ export function PipelineTable({
                     type="checkbox"
                     aria-label={`select ${c.name ?? "contact"}`}
                     checked={sel}
-                    onChange={() => toggle(c.id)}
+                    onChange={() => undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      pick(c.id, e.shiftKey, i);
+                    }}
                     className="accent-gen-accent"
                   />
                 </td>
