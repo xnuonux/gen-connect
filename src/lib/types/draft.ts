@@ -56,8 +56,11 @@ export const FORBIDDEN_PHRASES = [
 // max throws generateObject on a one-character overage, which would kill a
 // perfectly good draft. the ui flags overages, the model is told the target.
 export const MAX_SUBJECT_CHARS = 60;
+// the lavender 50-125 word band for cold b2b email (mobile-first). under ~50
+// reads thin, over ~125 gets skimmed. target the middle.
+export const MIN_BODY_WORDS = 50;
 export const BODY_TARGET_WORDS = 80;
-export const MAX_BODY_WORDS = 120;
+export const MAX_BODY_WORDS = 125;
 
 // a single angle's content. generous schema bounds so the model never
 // throws on a near-miss; the real caps live in the prompt + the ui flag.
@@ -74,7 +77,7 @@ const AngleBodySchema = z.object({
     .min(1)
     .max(2400)
     .describe(
-      `the email body. target ${BODY_TARGET_WORDS} words, hard ceiling ${MAX_BODY_WORDS}. lowercase, no em-dashes, one ask.`,
+      `the email body. ${MIN_BODY_WORDS}-${MAX_BODY_WORDS} words (target ${BODY_TARGET_WORDS}), lowercase, no em-dashes. open with THEM, one insight, a single low-friction call-to-conversation with an easy no.`,
     ),
   rationale: z
     .string()
@@ -108,8 +111,8 @@ const score = z.number().min(0).max(10);
 const JudgeAngleScoreSchema = z.object({
   relevance: score.describe("specific to this contact, not generic."),
   voice_match: score.describe("sounds like the user, not like AI."),
-  opening_strength: score.describe("the first 12 words pass the scroll test."),
-  ask_clarity: score.describe("one ask, one CTA, unmissable."),
+  opening_strength: score.describe("the first 12 words lead with THEM, not i/we, and pass the mobile scroll test."),
+  ask_clarity: score.describe("a single low-friction call-to-conversation with an easy no ... NOT a hard meeting or calendar demand on a cold open."),
   expected_reply_rate: score.describe("your bayesian forecast of a reply."),
   evidence: z
     .string()

@@ -31,12 +31,22 @@ function judgeSystem(profile: VoiceProfile | null): string {
 of cold emails and the reply data behind them. you are skeptical and
 specific. you do NOT reward clever copy that will not get a reply.
 
+the anatomy that actually earns replies, score against it: the open leads with
+THEM, not the sender; one real relevance insight; one TRUE credibility beat if
+any; a single low-friction call-to-conversation with an easy out; 50-125 words,
+mobile-first. a hard meeting or calendar ask on a cold first touch is a red
+flag, not a strength ... the meeting is asked on touch 2-3, not now.
+
 score each candidate on five axes, 0-10:
 - relevance: specific to this contact, not generic
 - voice_match: sounds like the user, not like AI. ${voiceNote}
-- opening_strength: do the first 12 words pass the scroll test
-- ask_clarity: one ask, one CTA, unmissable
+- opening_strength: do the first 12 words lead with THEM (not i/we) and pass the mobile scroll test
+- ask_clarity: a single low-friction call-to-conversation with an easy no ... dock hard for "book 30 minutes" or a calendar link on a cold open
 - expected_reply_rate: your honest bayesian forecast that a human replies
+
+DISQUALIFIER: if a candidate fabricates a signal, a compliment, an event, or
+social proof, cap relevance and expected_reply_rate at 2 and say so in the
+evidence ... a fake hook is the exact thing that burned the ai-sdr category.
 
 for each candidate, cite evidence ... quote the lines that earned or cost
 points. be harsh on anything that smells like AI or a template.`;
