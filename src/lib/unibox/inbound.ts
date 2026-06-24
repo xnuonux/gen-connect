@@ -46,7 +46,9 @@ async function lookupByFromEmail(
   const { data } = await admin
     .from("gc_contacts")
     .select("id, user_id")
-    .ilike("email", email) // emails carry no sql wildcards ... exact, case-insensitive
+    // exact, case-insensitive: rows are stored lowercased on write, and ilike
+    // would treat a literal "_" / "%" in an address as a wildcard.
+    .eq("email", email.toLowerCase())
     .limit(2);
   if (!data || data.length !== 1) return null;
   const c = data[0] as { id: string; user_id: string };
@@ -145,7 +147,7 @@ export async function ingestInbound(
   }
 
   const now = new Date().toISOString();
-  await admin.from("gc_unibox_messages").insert({
+  const { error: insertErr } = await admin.from("gc_unibox_messages").insert({
     user_id: target.userId,
     thread_id: target.threadId,
     direction: "inbound",
@@ -155,6 +157,13 @@ export async function ingestInbound(
     in_reply_to: email.inReplyTo,
     sent_at: now,
   });
+  if (insertErr) {
+    // a concurrent / redelivered webhook already inserted this exact reply ...
+    // the partial unique index (user_id, message_id_header) caught the race, so
+    // skip the bump + the stage-lift rather than double-count it.
+    if (insertErr.code === "23505") return { matched: true, threadId: target.threadId };
+    throw new Error(insertErr.message);
+  }
 
   const { data: t } = await admin
     .from("gc_unibox_threads")
@@ -205,7 +214,7 @@ async function resolveEventOwner(
     const { data } = await admin
       .from("gc_contacts")
       .select("id, user_id")
-      .ilike("email", recipientEmail)
+      .eq("email", recipientEmail.toLowerCase())
       .limit(2);
     if (data && data.length === 1) {
       const c = data[0] as { id: string; user_id: string };
@@ -228,7 +237,7 @@ async function suppress(
     .from("gc_suppression")
     .select("id")
     .eq("user_id", userId)
-    .ilike("email", lowered)
+    .eq("email", lowered)
     .limit(1)
     .maybeSingle();
   if (existing) return;

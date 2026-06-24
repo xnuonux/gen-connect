@@ -5,11 +5,11 @@ import {
 } from "@/lib/deliverability/rate";
 
 // the deliverability read model ... RLS-scoped, never throws (a stats hiccup must
-// not blank the dashboard). real, live numbers: the send mode + volume (from the
-// gc_usage_events send ledger, the same one the top-bar ticker counts) AND the
-// health half ... delivered / bounced / complained / unsubscribed off the
-// gc_deliverability_events ledger the resend webhook feeds, plus the suppression
-// count. rates are computed against the 'sent' rows. honest visibility, no mocks.
+// not blank the dashboard). real, live numbers: the send mode + volume + the
+// health half (delivered / bounced / complained / unsubscribed + suppression
+// count), ALL off the gc_deliverability_events ledger the resend webhook feeds +
+// guardedSend logs. volume and the rate denominator read the SAME 'sent' rows, so
+// unibox replies and copilot sends count in one place. honest visibility, no mocks.
 
 export type RecentEvent = {
   type: string;
@@ -79,11 +79,14 @@ export async function deliverabilitySummary(): Promise<DeliverabilitySummary> {
 
   try {
     const supabase = await createClient();
+    // volume counts the 'sent' rows of the deliverability ledger ... the SAME
+    // rows the health rates use as denominator, so unibox replies and copilot
+    // sends land in one number (both route through guardedSend -> logOutboundEmail).
     const countSend = (since?: string) => {
       let q = supabase
-        .from("gc_usage_events")
+        .from("gc_deliverability_events")
         .select("*", { count: "exact", head: true })
-        .eq("kind", "send_email");
+        .eq("event_type", "sent");
       if (since) q = q.gte("occurred_at", since);
       return q;
     };

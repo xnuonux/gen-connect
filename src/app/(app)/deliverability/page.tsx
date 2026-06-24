@@ -3,11 +3,12 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { cn } from "@/lib/utils/cn";
 import { deliverabilitySummary } from "@/lib/deliverability/summary";
 
-// the deliverability dashboard ... listmonk-tier visibility of what's real today:
-// the send mode, live send volume, the sending identity, and the readiness
-// checklist every send answers to (with honest live/pending status). the live
-// bounce/complaint/reputation half is deferred to the send pipeline + inbound
-// webhook ... flagged here, never faked. see .claude/skills/deliverability.
+// the deliverability dashboard ... listmonk-tier visibility: send mode, live
+// volume + health (delivered / bounce rate / complaint rate / suppression off the
+// gc_deliverability_events ledger), the recent-events stream the resend webhook
+// feeds, and the readiness checklist (live/pending, honest). what remains is the
+// spf/dkim/dmarc dns wizard + warmup tracking on a verified domain. see
+// .claude/skills/deliverability.
 
 type CheckStatus = "live" | "pending";
 

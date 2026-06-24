@@ -1,13 +1,13 @@
 import { createHmac } from "node:crypto";
+import { signingSecret, secretIsTrustworthy } from "@/lib/email/secret";
 
 // can-spam + the 2024 google/yahoo/microsoft bulk-sender rules, as code. every
 // send carries a one-click unsubscribe (rfc 8058) and cold first-touches carry
 // a physical-address footer. the unsubscribe token is stateless + signed so the
-// public endpoint can honor it without a session.
-const SECRET =
-  process.env.GEN_UNSUB_SECRET ??
-  process.env.GEN_THREAD_SECRET ??
-  "gen-connect-unsub-v1";
+// public endpoint can honor it without a session ... and fails closed in prod
+// when the secret is the public fallback (see secret.ts), so it can't be forged.
+const UNSUB_ENV = process.env.GEN_UNSUB_SECRET ?? process.env.GEN_THREAD_SECRET;
+const SECRET = signingSecret(UNSUB_ENV, "gen-connect-unsub-v1");
 
 export const PUBLIC_BASE_URL = (
   process.env.GEN_PUBLIC_URL ??
@@ -28,6 +28,8 @@ export function signUnsubToken(userId: string, email: string): string {
 export function verifyUnsubToken(
   token: string,
 ): { userId: string; email: string } | null {
+  // fail closed: a token signed with the public fallback is untrustworthy in prod.
+  if (!secretIsTrustworthy(UNSUB_ENV)) return null;
   const dot = token.lastIndexOf(".");
   if (dot < 1) return null;
   const payload = token.slice(0, dot);

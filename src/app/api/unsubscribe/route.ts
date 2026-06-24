@@ -23,7 +23,7 @@ async function suppress(
     .from("gc_suppression")
     .select("id")
     .eq("user_id", parsed.userId)
-    .ilike("email", email)
+    .eq("email", email)
     .limit(1)
     .maybeSingle();
 

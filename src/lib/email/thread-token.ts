@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { signingSecret, secretIsTrustworthy } from "@/lib/email/secret";
 
 // threading lives in the address, not a database column. every outbound email
 // carries a signed reply-to token ("gen+t.<threadId>.<sig>@lunari.pro") so an
@@ -7,14 +8,17 @@ import { createHmac } from "node:crypto";
 // that echo in-reply-to / references.
 //
 // the secret is a dedicated GEN_THREAD_SECRET ... NOT the resend webhook secret
-// (different trust boundary). the dev fallback is safe: the token only routes a
-// reply to a thread the user already owns, and rls still gates every read.
-const SECRET = process.env.GEN_THREAD_SECRET ?? "gen-connect-thread-routing-v1";
+// (different trust boundary). the inbound write path runs through the service-
+// role admin client (rls bypassed), so the token IS a trust boundary: verify
+// fails closed in prod when the secret is the public fallback (see secret.ts).
+const THREAD_ENV = process.env.GEN_THREAD_SECRET;
+const SECRET = signingSecret(THREAD_ENV, "gen-connect-thread-routing-v1");
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
+// 24 hex = 96 bits of tag ... wide enough that an online forgery is hopeless.
 function sig(threadId: string): string {
-  return createHmac("sha256", SECRET).update(threadId).digest("hex").slice(0, 12);
+  return createHmac("sha256", SECRET).update(threadId).digest("hex").slice(0, 24);
 }
 
 // "t.<threadId>.<sig>" ... the token embedded in the reply-to local part.
@@ -24,7 +28,9 @@ export function signThreadToken(threadId: string): string {
 
 // extract the threadId from a token, or null on any tamper / malformed input.
 export function verifyThreadToken(token: string): string | null {
-  const m = new RegExp(`^t\\.(${UUID})\\.([0-9a-f]{12})$`).exec(token.trim());
+  // fail closed: a token signed with the public fallback is untrustworthy in prod.
+  if (!secretIsTrustworthy(THREAD_ENV)) return null;
+  const m = new RegExp(`^t\\.(${UUID})\\.([0-9a-f]{24})$`).exec(token.trim());
   const threadId = m?.[1];
   const given = m?.[2];
   if (!threadId || !given) return null;

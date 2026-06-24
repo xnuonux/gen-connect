@@ -13,7 +13,7 @@ export async function isSuppressed(
     .from("gc_suppression")
     .select("id")
     .eq("user_id", userId)
-    .ilike("email", email.toLowerCase())
+    .eq("email", email.toLowerCase())
     .limit(1)
     .maybeSingle();
   return !!data;

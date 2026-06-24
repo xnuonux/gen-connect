@@ -21,6 +21,10 @@ function verifySvix(
   rawBody: string,
 ): boolean {
   if (!id || !timestamp || !signatureHeader) return false;
+  // reject a stale or replayed timestamp (the svix scheme mandates a tolerance;
+  // 5 minutes is the default). blocks replay of a captured-but-valid payload.
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false;
   const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
   const expected = createHmac("sha256", key)
     .update(`${id}.${timestamp}.${rawBody}`)
@@ -96,8 +100,20 @@ export async function POST(req: NextRequest) {
         : typeof data.id === "string"
           ? data.id
           : null;
+    // a transient / soft bounce (mailbox full, greylisting, deferred) must NOT
+    // permanently suppress a valid address or inflate the hard-bounce rate. only
+    // an explicit Permanent bounce is a hard bounce; anything else logs as a
+    // non-suppressing delivery_delayed.
+    let eventType = mapped;
+    if (mapped === "bounced") {
+      const bounce = (data.bounce && typeof data.bounce === "object"
+        ? data.bounce
+        : {}) as Record<string, unknown>;
+      const bounceType = typeof bounce.type === "string" ? bounce.type : "";
+      if (!/permanent/i.test(bounceType)) eventType = "delivery_delayed";
+    }
     const res = await ingestDeliverabilityEvent({
-      eventType: mapped,
+      eventType,
       externalId,
       recipientEmail: firstRecipient(data.to),
       messageId: typeof data.message_id === "string" ? data.message_id : null,
