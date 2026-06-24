@@ -17,7 +17,18 @@ every prospect, every cold first-touch, gen produces 5 distinct angle drafts:
 4. **utility offer** ... give first (template, audit, intro, free resource), then ask
 5. **curiosity hook** ... tease a specific insight that requires a reply to unlock
 
-each angle is a complete draft: subject line + body. body under 80 words. one ask per email.
+each angle is a complete draft: subject line + body. body 50-125 words (target ~80), mobile-first, one idea per short paragraph. exactly one ask ... and on a cold first touch the ask is a call-to-conversation (an interest check, an easy question), never "book 30 minutes" or a calendar link. the meeting ask lands on touch 2-3, not now.
+
+## the anatomy (every angle, this shape)
+
+the lavender / josh braun / becc holland structure the 2026 reply data backs:
+
+1. open with THEM ... an observation, a signal, something specific you actually saw. never open with "i" or "we".
+2. one relevance insight that ties their moment to a problem gen's user solves.
+3. one TRUE credibility beat if it earns its place ... a real, relevant result, never a number you can't stand behind.
+4. a single low-friction call-to-conversation + an easy "no".
+
+honesty is a hard line, not a style note: never fabricate a signal, a compliment, an event, or social proof. the invented "congrats on the raise" that never happened is the exact move that torched the ai-sdr category in 2025. no real hook? lead with honest relevance.
 
 ## the model
 
@@ -30,8 +41,8 @@ each angle is a complete draft: subject line + body. body under 80 words. one as
 after 5 angles are generated, opus runs a second pass to score each on 5 axes (1-10):
 1. **relevance** ... specific to this contact, not generic
 2. **voice_match** ... sounds like the user, not AI
-3. **opening_strength** ... first 12 words pass scroll test
-4. **ask_clarity** ... one ask, one CTA
+3. **opening_strength** ... first 12 words lead with THEM (not i/we) + pass the mobile scroll test
+4. **ask_clarity** ... a single low-friction call-to-conversation with an easy no, NOT a hard meeting ask on a cold open
 5. **expected_reply_rate** ... judge's bayesian forecast
 
 mitigations against self-enhancement bias:
@@ -60,6 +71,8 @@ forbidden in any draft:
 
 enforced via post-generation regex check. if hit, regenerate that angle only.
 
+beyond the regex list, the self-judge caps relevance + expected_reply_rate at 2 for any fabricated signal, compliment, or social proof ... a fake hook is a disqualifier, not a deduction.
+
 ## the structure (production prompt skeleton)
 
 ```ts
@@ -70,9 +83,9 @@ CONSTRAINTS (non-negotiable):
 - lowercase only (unless proper nouns)
 - never use em-dashes (use "..." for pauses)
 - never use: "${forbidden_phrases.join('", "')}"
-- max 120 words per body
+- 50-125 words per body (target ~80)
 - max 60 chars per subject
-- one ask per email
+- one ask per email ... a call-to-conversation on a cold first touch, never a meeting/calendar demand
 - no exclamation marks unless user's corpus has them
 
 USER VOICE CORPUS:
