@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -85,6 +85,23 @@ export function UniboxView({
     refetchInterval: 20_000,
   });
 
+  // keep the newest message in view. now that realtime actually delivers (see
+  // the setAuth fix), a live reply to the open thread would otherwise append
+  // below the fold and sit unseen ... so we pin to the bottom. but only when the
+  // reader is already near the bottom: if they scrolled up to read history, a new
+  // arrival must not yank them back down.
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const atBottomRef = useRef(true);
+  const onTranscriptScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    atBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages, selectedId]);
+
   // the unibox comes alive: a realtime channel on gc_unibox_messages INSERT, so
   // a reply threaded in by the resend webhook pops into the open transcript +
   // bumps the thread list the instant it lands ... no manual refresh. the hook
@@ -155,6 +172,8 @@ export function UniboxView({
     setSelectedId(id);
     setComposer("");
     setMeta(null);
+    // a freshly-opened thread starts pinned to its newest message.
+    atBottomRef.current = true;
     // optimistically clear the unread dot, then persist + reconcile.
     const target = threads.find((t) => t.id === id);
     if (target && target.unreadCount > 0) {
@@ -230,7 +249,11 @@ export function UniboxView({
               </div>
             </header>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
+            <div
+              ref={transcriptRef}
+              onScroll={onTranscriptScroll}
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5"
+            >
               {msgsLoading ? (
                 <div className="space-y-3">
                   {[0, 1, 2].map((i) => (
