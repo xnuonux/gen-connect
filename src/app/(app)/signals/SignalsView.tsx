@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { useRealtimeInvalidate } from "@/lib/supabase/use-realtime-invalidate";
 import { toast } from "sonner";
 import {
   Radio,
@@ -79,25 +80,16 @@ export function SignalsView({
   });
 
   // the live feed: a realtime channel on gc_signal_hits insert. the second a hit
-  // lands, refetch ... "while you sleep" made literal. RLS scopes which inserts
-  // this client receives. the callback only invalidates (no state set in the
-  // effect body), so it stays clear of the set-state-in-effect rule.
-  useEffect(() => {
-    const channel = supabase
-      .channel("gc-signal-hits-feed")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "gc_signal_hits" },
-        () => {
-          void queryClient.invalidateQueries({ queryKey: ["signal-hits"] });
-          void queryClient.invalidateQueries({ queryKey: ["signal-agents"] });
-        },
-      )
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [supabase, queryClient]);
+  // lands, refetch ... "while you sleep" made literal. the hook authenticates the
+  // socket before joining so rls actually delivers the event (the same
+  // setAuth-before-subscribe fix the unibox uses ... see use-realtime-invalidate).
+  useRealtimeInvalidate({
+    supabase,
+    channelName: "gc-signal-hits-feed",
+    bindings: [{ table: "gc_signal_hits", event: "INSERT" }],
+    queryClient,
+    invalidateKeys: [["signal-hits"], ["signal-agents"]],
+  });
 
   const live = useMemo(
     () => hits.filter((h) => h.status === "pending" || h.status === "scored"),

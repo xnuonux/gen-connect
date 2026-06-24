@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "voice-check": "bash scripts/check-em-dash.sh",
     "test": "node --import ./test/register-alias.mjs ./test/pure.ts",
+    "verify:realtime": "node scripts/verify-realtime.mjs",
     "ship": "pnpm typecheck && pnpm lint && pnpm voice-check && pnpm test"
   },
   "dependencies": {
