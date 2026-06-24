@@ -10,6 +10,10 @@ const PROTECTED_PREFIXES = [
   "/campaigns",
   "/triggers",
   "/sequences",
+  "/deliverability",
+  "/gen",
+  "/draft",
+  "/onboarding",
 ];
 
 function isProtected(pathname: string): boolean {
