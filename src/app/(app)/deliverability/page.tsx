@@ -24,8 +24,23 @@ const CHECKLIST: { label: string; status: CheckStatus; note: string }[] = [
   },
   {
     label: "list-unsubscribe header",
-    status: "pending",
-    note: "one-click unsubscribe (gmail + yahoo, 2024) lands with the send pipeline.",
+    status: "live",
+    note: "every send carries rfc 8058 one-click unsubscribe (gmail + yahoo, 2024), honored at /api/unsubscribe.",
+  },
+  {
+    label: "suppression list",
+    status: "live",
+    note: "hard bounces, complaints + unsubscribes are checked on every send ... a suppressed address is never emailed again.",
+  },
+  {
+    label: "bounce + complaint auto-pause",
+    status: "live",
+    note: "the resend webhook feeds the ledger; cross the complaint or bounce line and active sequences auto-pause.",
+  },
+  {
+    label: "jurisdiction gate",
+    status: "live",
+    note: "cold mail to a strict-opt-in eu country is blocked unless consent is on file. uk / france / us pass.",
   },
   {
     label: "spf / dkim / dmarc",
@@ -37,17 +52,21 @@ const CHECKLIST: { label: string; status: CheckStatus; note: string }[] = [
     status: "pending",
     note: "new inboxes ramp 5 to 50 over 14 days ... tracked once sending is live.",
   },
-  {
-    label: "suppression list",
-    status: "pending",
-    note: "hard bounces, complaints + unsubscribes ... checked on every send.",
-  },
-  {
-    label: "bounce + complaint auto-pause",
-    status: "pending",
-    note: "over the threshold, sequences auto-pause ... needs the inbound + events pipeline.",
-  },
 ];
+
+function pct(r: number): string {
+  return `${(r * 100).toFixed(2)}%`;
+}
+
+function rateTone(rate: number, threshold: number): "ok" | "warn" | "alert" {
+  if (rate >= threshold) return "alert";
+  if (rate >= threshold * 0.5) return "warn";
+  return "ok";
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toISOString().slice(5, 16).replace("T", " ");
+}
 
 const WARMUP: { day: string; cap: string }[] = [
   { day: "day 1", cap: "5" },
@@ -73,6 +92,34 @@ function VolumeCard({ label, value }: { label: string; value: number }) {
       <MonoLabel>{label}</MonoLabel>
       <div className="mt-2 font-mono text-2xl tabular-nums text-lunari-cream">
         {value.toLocaleString("en-US")}
+      </div>
+    </div>
+  );
+}
+
+function HealthStat({
+  label,
+  value,
+  tone = "ok",
+}: {
+  label: string;
+  value: string;
+  tone?: "ok" | "warn" | "alert";
+}) {
+  return (
+    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+      <MonoLabel>{label}</MonoLabel>
+      <div
+        className={cn(
+          "mt-2 font-mono text-2xl tabular-nums",
+          tone === "alert"
+            ? "text-lunari-crimson"
+            : tone === "warn"
+              ? "text-lunari-gold"
+              : "text-lunari-cream",
+        )}
+      >
+        {value}
       </div>
     </div>
   );
@@ -126,6 +173,55 @@ export default async function DeliverabilityPage() {
           <VolumeCard label="all time" value={s.sendsTotal} />
         </div>
       </div>
+
+      {/* deliverability health ... live, off the events ledger + suppression */}
+      <div>
+        <MonoLabel>deliverability health</MonoLabel>
+        <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <HealthStat label="delivered" value={s.delivered.toLocaleString("en-US")} />
+          <HealthStat
+            label="bounce rate"
+            value={pct(s.bounceRate)}
+            tone={rateTone(s.bounceRate, s.bouncePauseRate)}
+          />
+          <HealthStat
+            label="complaint rate"
+            value={pct(s.complaintRate)}
+            tone={rateTone(s.complaintRate, s.complaintPauseRate)}
+          />
+          <HealthStat label="suppressed" value={s.suppressed.toLocaleString("en-US")} />
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-lunari-neutral-500">
+          rates measured against {s.sentLedger.toLocaleString("en-US")} logged sends.
+          auto-pause trips at {pct(s.complaintPauseRate)} complaints or{" "}
+          {pct(s.bouncePauseRate)} bounces.
+        </p>
+      </div>
+
+      {/* recent events ... the live stream from the resend webhook */}
+      {s.recent.length > 0 && (
+        <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+          <MonoLabel>recent events</MonoLabel>
+          <ul className="mt-3 space-y-1.5">
+            {s.recent.map((e, i) => (
+              <li
+                key={`${e.type}-${e.at}-${i}`}
+                className="flex items-center justify-between gap-3 text-[12px]"
+              >
+                <span className="w-28 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-400">
+                  {e.type}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-lunari-neutral-500">
+                  {e.email ?? ""}
+                </span>
+                <span className="shrink-0 font-mono text-[10px] tabular-nums text-lunari-neutral-500">
+                  {fmtTime(e.at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* readiness checklist ... honest live/pending status */}
       <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
@@ -201,10 +297,9 @@ export default async function DeliverabilityPage() {
           {s.sendFromDomain}
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-lunari-neutral-500">
-          live bounce rate, complaint rate, per-domain reputation + the recent-events
-          stream light up when the send pipeline and the inbound webhook land. this
-          page shows the visibility that is real today ... mode, volume, and the
-          standard every send is held to.
+          bounce rate, complaint rate, suppression, the unsubscribe loop + auto-pause
+          are live now, fed by the resend webhook. what is left for a clean live send:
+          the spf / dkim / dmarc dns wizard + warmup tracking on a verified domain.
         </p>
       </div>
     </div>
