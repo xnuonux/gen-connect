@@ -30,6 +30,7 @@ import {
 import { secretIsTrustworthy } from "../src/lib/email/secret.ts";
 import { presendVerdict } from "../src/lib/deliverability/presend.ts";
 import { normalizeDomain, expectedRecords, parseDmarcPolicy } from "../src/lib/deliverability/dns.ts";
+import { parseResendDomain, resendVerified } from "../src/lib/deliverability/resend-domains.ts";
 
 let pass = 0;
 let fail = 0;
@@ -199,6 +200,23 @@ ok("dmarc p= basic", parseDmarcPolicy("v=DMARC1; p=reject; rua=mailto:x") === "r
 ok("dmarc sp= first not matched", parseDmarcPolicy("v=DMARC1; sp=reject; p=quarantine") === "quarantine");
 ok("dmarc sp=none p=reject", parseDmarcPolicy("v=DMARC1; adkim=s; aspf=s; sp=none; p=reject") === "reject");
 ok("dmarc absent -> null", parseDmarcPolicy("v=DMARC1; rua=mailto:x") === null);
+
+// --- resend authoritative domain parse ---
+const resendList = {
+  object: "list",
+  data: [
+    { id: "dom_1", name: "lunari.pro", status: "verified" },
+    { id: "dom_2", name: "other.com", status: "pending" },
+  ],
+};
+ok("resend finds verified status", parseResendDomain(resendList, "lunari.pro")?.status === "verified");
+ok("resend returns id", parseResendDomain(resendList, "lunari.pro")?.id === "dom_1");
+ok("resend case-insensitive", parseResendDomain(resendList, "LUNARI.PRO")?.id === "dom_1");
+ok("resend not found -> null", parseResendDomain(resendList, "nope.com") === null);
+ok("resend bad json -> null", parseResendDomain({}, "lunari.pro") === null);
+ok("resendVerified true", resendVerified({ id: "x", status: "verified" }) === true);
+ok("resendVerified pending false", resendVerified({ id: "x", status: "pending" }) === false);
+ok("resendVerified null false", resendVerified(null) === false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

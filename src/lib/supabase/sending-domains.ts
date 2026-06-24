@@ -95,6 +95,7 @@ export async function isDomainVerified(rawDomain: string): Promise<boolean> {
 export async function saveDomainVerification(
   domainId: string,
   check: DnsCheck,
+  resendDomainId?: string | null,
 ): Promise<void> {
   const supabase = await createClient();
   const ready = check.spf && check.dkim && check.mx;
@@ -107,6 +108,7 @@ export async function saveDomainVerification(
       dmarc_policy: check.dmarcPolicy,
       status: ready ? "verified" : "failed",
       last_checked_at: check.checkedAt,
+      ...(resendDomainId ? { resend_domain_id: resendDomainId } : {}),
     })
     .eq("id", domainId);
 }

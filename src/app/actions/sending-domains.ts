@@ -10,6 +10,7 @@ import {
   type SendingDomain,
 } from "@/lib/supabase/sending-domains";
 import { verifyDomainDns, type DnsCheck } from "@/lib/deliverability/dns-verify";
+import { fetchResendDomain, resendVerified } from "@/lib/deliverability/resend-domains";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -45,8 +46,19 @@ export async function checkDomainAction(raw: unknown): Promise<CheckResult> {
     .safeParse(raw);
   if (!parsed.success) return { ok: false, error: "that domain didn't look right ..." };
 
-  const check = await verifyDomainDns(parsed.data.domain);
-  await saveDomainVerification(parsed.data.id, check);
+  // the doh self-serve check + the authoritative resend status (when a key is
+  // configured). resend 'verified' confirms spf + dkim + mx all resolve to its
+  // real records, so it trumps the doh presence check ... 'verified' then means
+  // the real dkim key is published, not just "something is there".
+  const [dohCheck, resend] = await Promise.all([
+    verifyDomainDns(parsed.data.domain),
+    fetchResendDomain(parsed.data.domain),
+  ]);
+  const check: DnsCheck =
+    resend && resendVerified(resend)
+      ? { ...dohCheck, spf: true, dkim: true, mx: true }
+      : dohCheck;
+  await saveDomainVerification(parsed.data.id, check, resend?.id ?? null);
   revalidatePath("/deliverability");
   return { ok: true, check, domains: await listSendingDomains() };
 }
