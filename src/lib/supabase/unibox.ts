@@ -197,58 +197,80 @@ export async function touchContact(contactId: string): Promise<void> {
     .eq("id", contactId);
 }
 
-// log a sent email into the unibox: find or create the contact's email thread,
-// then append an outbound message. RLS-scoped via the session client. lets a
-// send show up in the inbox, closing the loop visibly.
+// log a sent email into the unibox: append an outbound message to the given
+// thread (or find/create the contact's email thread), then record a 'sent'
+// deliverability event so bounce/complaint webhooks can resolve the owner by
+// resend's external id and the dashboard can count sends. RLS-scoped via the
+// session client. lets a send show up in the inbox, closing the loop visibly.
 export async function logOutboundEmail(args: {
   contactId: string;
   subject: string;
   body: string;
-  externalId?: string | null;
+  externalId?: string | null; // resend's email id
+  messageId?: string | null; // our rfc Message-ID (threadId anchor)
+  toEmail?: string | null; // the INTENDED recipient (the lead), not the test inbox
+  threadId?: string | null; // append here when known (a reply); else find/create
 }): Promise<void> {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   const userId = auth.user?.id;
   if (!userId) return;
 
-  let threadId: string | null = null;
-  const { data: existing } = await supabase
-    .from("gc_unibox_threads")
-    .select("id")
-    .eq("contact_id", args.contactId)
-    .eq("channel", "email")
-    .limit(1)
-    .maybeSingle();
-
-  if (existing) {
-    threadId = existing.id as string;
-  } else {
-    const { data: created } = await supabase
+  let threadId: string | null = args.threadId ?? null;
+  if (!threadId) {
+    const { data: existing } = await supabase
       .from("gc_unibox_threads")
-      .insert({
-        user_id: userId,
-        contact_id: args.contactId,
-        channel: "email",
-        status: "open",
-        last_message_at: new Date().toISOString(),
-      })
       .select("id")
-      .single();
-    threadId = (created?.id as string) ?? null;
+      .eq("contact_id", args.contactId)
+      .eq("channel", "email")
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      threadId = existing.id as string;
+    } else {
+      const { data: created } = await supabase
+        .from("gc_unibox_threads")
+        .insert({
+          user_id: userId,
+          contact_id: args.contactId,
+          channel: "email",
+          status: "open",
+          last_message_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      threadId = (created?.id as string) ?? null;
+    }
   }
   if (!threadId) return;
 
+  const now = new Date().toISOString();
   await supabase.from("gc_unibox_messages").insert({
     user_id: userId,
     thread_id: threadId,
     direction: "outbound",
     subject: args.subject,
     body: args.body,
-    message_id_header: args.externalId ?? null,
-    sent_at: new Date().toISOString(),
+    // prefer our threadId-anchored Message-ID; fall back to resend's id.
+    message_id_header: args.messageId ?? args.externalId ?? null,
+    sent_at: now,
   });
   await supabase
     .from("gc_unibox_threads")
-    .update({ last_message_at: new Date().toISOString() })
+    .update({ last_message_at: now })
     .eq("id", threadId);
+
+  // the 'sent' ledger row: the join key for inbound bounce/complaint resolution
+  // and the denominator for the deliverability rates.
+  if (args.externalId) {
+    await supabase.from("gc_deliverability_events").insert({
+      user_id: userId,
+      contact_id: args.contactId,
+      event_type: "sent",
+      email: args.toEmail ?? null,
+      external_id: args.externalId,
+      message_id: args.messageId ?? null,
+      occurred_at: now,
+    });
+  }
 }

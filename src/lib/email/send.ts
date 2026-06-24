@@ -7,7 +7,9 @@ import { scrubVoice } from "@/lib/ai/scrub";
 // lead is NEVER emailed during dogfooding. flip GEN_SEND_MODE=live to send for
 // real (the lunari.pro domain is verified, so live sends will actually land).
 const SEND_MODE = (process.env.GEN_SEND_MODE ?? "test").toLowerCase();
-const SEND_FROM = process.env.GEN_SEND_FROM ?? "gen <gen@lunari.pro>";
+// exported so the thread-token + message-id are built from the SAME from-address
+// the send actually uses ... keeps the reply-to routing token coherent.
+export const SEND_FROM = process.env.GEN_SEND_FROM ?? "gen <gen@lunari.pro>";
 const TEST_RECIPIENT =
   process.env.GEN_TEST_RECIPIENT ??
   process.env.DEV_LOGIN_EMAIL ??
@@ -26,6 +28,11 @@ export async function sendDraftEmail(args: {
   to: string;
   subject: string;
   body: string;
+  // a tokenized reply-to ("gen+t.<threadId>.<sig>@...") so the recipient's reply
+  // routes back to its thread, plus any rfc headers (e.g. a stable Message-ID,
+  // List-Unsubscribe). both optional ... a bare send still works.
+  replyTo?: string;
+  headers?: Record<string, string>;
 }): Promise<SendResult> {
   const mode: "test" | "live" = SEND_MODE === "live" ? "live" : "test";
   const intendedFor = args.to;
@@ -56,6 +63,8 @@ export async function sendDraftEmail(args: {
       to: deliveredTo,
       subject,
       text: body,
+      ...(args.replyTo ? { replyTo: args.replyTo } : {}),
+      ...(args.headers ? { headers: args.headers } : {}),
     });
     if (error) {
       return {

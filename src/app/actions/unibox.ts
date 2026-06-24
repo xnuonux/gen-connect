@@ -17,8 +17,10 @@ import { getVoiceProfile } from "@/lib/supabase/voice";
 import { updateContactStage } from "@/lib/supabase/contacts";
 import { recordOutcome } from "@/lib/supabase/outcomes";
 import { draftReply, type ReplyTranscriptLine } from "@/lib/ai/reply";
-import { sendDraftEmail } from "@/lib/email/send";
+import { sendDraftEmail, SEND_FROM } from "@/lib/email/send";
+import { buildReplyTo, buildMessageId } from "@/lib/email/thread-token";
 import { scrubVoice } from "@/lib/ai/scrub";
+import { randomUUID } from "node:crypto";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -169,10 +171,21 @@ export async function sendReplyAction(
     // nothing reaches the unibox un-scrubbed, even a user-typed em-dash.
     const cleanBody = scrubVoice(parsed.data.body);
 
+    // thread the reply: a signed reply-to token routes their next reply back to
+    // this thread, and a stable Message-ID anchors in-reply-to / references.
+    const replyTo = buildReplyTo(parsed.data.threadId, SEND_FROM) ?? undefined;
+    const messageId = buildMessageId(
+      parsed.data.threadId,
+      SEND_FROM,
+      randomUUID().slice(0, 8),
+    );
+
     const result = await sendDraftEmail({
       to: head.contactEmail,
       subject,
       body: cleanBody,
+      replyTo,
+      headers: { "Message-ID": messageId },
     });
 
     if (!result.sent) {
@@ -185,9 +198,12 @@ export async function sendReplyAction(
     if (head.contactId) {
       await logOutboundEmail({
         contactId: head.contactId,
+        threadId: parsed.data.threadId,
         subject,
         body: cleanBody,
         externalId: result.id ?? null,
+        messageId,
+        toEmail: head.contactEmail,
       });
       // an outbound reply is a touch ... keep them fresh in the pipeline.
       await touchContact(head.contactId);
