@@ -15,6 +15,7 @@ import {
 import { enrichContactAction } from "@/app/actions/enrichment";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import type { DraftRecord, DraftAngleRecord } from "@/lib/supabase/drafts";
+import type { PresendVerdict } from "@/lib/deliverability/presend";
 
 type StudioContact = {
   id: string;
@@ -35,12 +36,14 @@ export function DraftStudio({
   voiceActive,
   initialHook,
   initialNeedsManual,
+  presend,
 }: {
   contact: StudioContact;
   initialDraft: DraftRecord | null;
   voiceActive: boolean;
   initialHook: string | null;
   initialNeedsManual: boolean;
+  presend: PresendVerdict | null;
 }) {
   const [draft, setDraft] = useState<DraftRecord | null>(initialDraft);
   const [busy, setBusy] = useState(false);
@@ -156,6 +159,8 @@ export function DraftStudio({
         onEnrich={onEnrich}
       />
 
+      {presend ? <PresendStrip verdict={presend} /> : null}
+
       {!draft ? (
         busy ? (
           <GeneratingAngles />
@@ -263,6 +268,44 @@ function EnrichStrip({
             ? ` · email ${summary.emailStatus}${summary.emailStatus === "valid" ? " (verified)" : ""}`
             : ""}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+// the pre-send read ... the deterministic deliverability verdict (suppression +
+// jurisdiction) shown at review time, so the guardrails are a felt up-front
+// signal, not a string returned after a blocked send. green ready, gold warn,
+// crimson blocked.
+function PresendStrip({ verdict }: { verdict: PresendVerdict }) {
+  const tone =
+    verdict.status === "blocked"
+      ? { border: "border-lunari-crimson/40", text: "text-lunari-crimson", dot: "bg-lunari-crimson" }
+      : verdict.status === "warn"
+        ? { border: "border-lunari-gold/40", text: "text-lunari-gold", dot: "bg-lunari-gold" }
+        : { border: "border-gen-accent/40", text: "text-gen-accent", dot: "bg-gen-accent" };
+  return (
+    <div className={cn("rounded-md border bg-lunari-surface px-4 py-3", tone.border)}>
+      <div className="flex items-center gap-2.5">
+        <span className={cn("h-2 w-2 rounded-full", tone.dot)} />
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
+          pre-send
+        </span>
+        <span className={cn("text-sm font-medium", tone.text)}>
+          {verdict.headline}
+        </span>
+      </div>
+      {verdict.reasons.length ? (
+        <ul className="mt-2 space-y-1">
+          {verdict.reasons.map((r, i) => (
+            <li
+              key={i}
+              className="text-[11px] leading-relaxed text-lunari-neutral-400"
+            >
+              {r}
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getVoiceProfile } from "@/lib/supabase/voice";
 import { getLatestDraftForContact } from "@/lib/supabase/drafts";
+import { presendForContact } from "@/lib/deliverability/presend-check";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { DraftStudio } from "./DraftStudio";
 
@@ -40,9 +41,11 @@ export default async function DraftPage({
     typeof enrichment.hook === "string" ? enrichment.hook : null;
   const initialNeedsManual = enrichment.needs_manual === true;
 
-  const [draft, voice] = await Promise.all([
+  const [draft, voice, presend] = await Promise.all([
     getLatestDraftForContact(contactId),
     getVoiceProfile(),
+    // the draft studio is the cold first-touch review surface.
+    presendForContact(contactId, "cold"),
   ]);
 
   const who = [c.name ?? "this contact", c.title, c.company?.name]
@@ -69,6 +72,7 @@ export default async function DraftPage({
           voiceActive={voice?.active_for_outreach ?? false}
           initialHook={initialHook}
           initialNeedsManual={initialNeedsManual}
+          presend={presend}
         />
       </div>
     </div>
