@@ -61,28 +61,33 @@ const admin = createClient(SUPA_URL, SVC, {
 });
 
 // --- mint a real user session via the admin magic-link path (no email sent) ---
-const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
-  type: "magiclink",
-  email: EMAIL,
-});
-if (linkErr || !link?.properties?.hashed_token) {
-  console.error("generateLink failed:", linkErr?.message ?? "no token");
-  process.exit(2);
+async function mintSession() {
+  const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email: EMAIL,
+  });
+  if (linkErr || !link?.properties?.hashed_token) {
+    console.error("generateLink failed:", linkErr?.message ?? "no token");
+    process.exit(2);
+  }
+  const verifier = createClient(SUPA_URL, ANON, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data: sess, error: vErr } = await verifier.auth.verifyOtp({
+    type: "magiclink",
+    token_hash: link.properties.hashed_token,
+  });
+  if (vErr || !sess?.session) {
+    console.error("verifyOtp failed:", vErr?.message ?? "no session");
+    process.exit(2);
+  }
+  return sess.session;
 }
-const verifier = createClient(SUPA_URL, ANON, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
-const { data: sess, error: vErr } = await verifier.auth.verifyOtp({
-  type: "magiclink",
-  token_hash: link.properties.hashed_token,
-});
-if (vErr || !sess?.session) {
-  console.error("verifyOtp failed:", vErr?.message ?? "no session");
-  process.exit(2);
-}
-const ACCESS = sess.session.access_token;
-const REFRESH = sess.session.refresh_token;
-const userId = sess.session.user.id;
+
+const session = await mintSession();
+const ACCESS = session.access_token;
+const REFRESH = session.refresh_token;
+const userId = session.user.id;
 console.log(`minted session for ${EMAIL} (user ${userId.slice(0, 8)}...)`);
 
 // --- ensure a thread to insert into; track what we create so we can clean up ---
@@ -215,11 +220,61 @@ async function trial(name, order) {
   return { name, status, received };
 }
 
+// the long-open-tab case: an authed channel is live and delivering, then the jwt
+// is refreshed (supabase-js calls realtime.setAuth on the already-joined channel).
+// does delivery survive? returns counts before + after the refresh.
+async function trialRefresh(name) {
+  const client = createClient(SUPA_URL, ANON, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  let received = 0;
+  await maybeAwait(client.realtime.setAuth(ACCESS));
+  const ch = client
+    .channel(`probe-${name}-${Date.now()}`)
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "gc_unibox_messages" },
+      () => {
+        received++;
+      },
+    );
+  await new Promise((res) => {
+    ch.subscribe((s) => {
+      if (s === "SUBSCRIBED" || s === "CHANNEL_ERROR" || s === "TIMED_OUT") {
+        res(s);
+      }
+    });
+    setTimeout(() => res("JOIN_TIMEOUT"), 10000);
+  });
+
+  // baseline: delivery works pre-refresh.
+  await sleep(300);
+  await insertProbe(`${name}-pre`);
+  await sleep(WAIT_MS);
+  const pre = received;
+
+  // refresh the jwt on the SAME live channel, exactly like a token rotation.
+  const fresh = await mintSession();
+  await maybeAwait(client.realtime.setAuth(fresh.access_token));
+  await sleep(800);
+  await insertProbe(`${name}-post`);
+  await sleep(WAIT_MS);
+  const post = received - pre;
+
+  await client.removeChannel(ch);
+  await maybeAwait(client.realtime.disconnect?.());
+  console.log(
+    `trial ${name.padEnd(14)} pre-refresh=${pre} post-refresh=${post}`,
+  );
+  return { name, pre, post };
+}
+
 console.log(`\nrunning trials (insert -> wait ${WAIT_MS}ms each)\n`);
 const a = await trial("A-anon", "none");
 const b = await trial("B-auth-first", "before");
 const c = await trial("C-auth-after", "after");
 const d = await trial("D-hook-path", "hook");
+const e = await trialRefresh("E-refresh");
 
 // --- cleanup every row we wrote ---
 if (insertedKeys.length) {
@@ -242,6 +297,7 @@ console.log(`A anon (expect 0):          ${a.received}`);
 console.log(`B setAuth->subscribe:       ${b.received}`);
 console.log(`C subscribe->setAuth (bug): ${c.received}`);
 console.log(`D shipped hook path:        ${d.received}`);
+console.log(`E refresh: pre=${e.pre} post=${e.post}  (post 0 => token-refresh drops live delivery)`);
 
 const aOk = a.received === 0;
 const bOk = b.received >= 1;
