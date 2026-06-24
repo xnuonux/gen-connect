@@ -10,6 +10,16 @@ const SEND_MODE = (process.env.GEN_SEND_MODE ?? "test").toLowerCase();
 // exported so the thread-token + message-id are built from the SAME from-address
 // the send actually uses ... keeps the reply-to routing token coherent.
 export const SEND_FROM = process.env.GEN_SEND_FROM ?? "gen <gen@lunari.pro>";
+
+// true when sends reach real recipients (vs the test-mode redirect). the live-
+// send domain gate reads this.
+export const IS_LIVE = SEND_MODE === "live";
+
+// the domain a send goes out from (the host of SEND_FROM).
+export function sendFromDomain(): string {
+  const m = SEND_FROM.match(/@([^>\s]+)/);
+  return (m?.[1] ?? "lunari.pro").trim().toLowerCase();
+}
 const TEST_RECIPIENT =
   process.env.GEN_TEST_RECIPIENT ??
   process.env.DEV_LOGIN_EMAIL ??

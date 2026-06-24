@@ -1,4 +1,4 @@
-import { normalizeDomain } from "@/lib/deliverability/dns";
+import { normalizeDomain, parseDmarcPolicy } from "@/lib/deliverability/dns";
 
 // the live dns check behind the wizard. uses dns-over-https (google) rather than
 // node:dns so it works in serverless / edge runtimes (netlify, vercel) where raw
@@ -80,9 +80,7 @@ export async function verifyDomainDns(rawDomain: string): Promise<DnsCheck> {
   const dkim = dkimTxt.some((r) => /p=/i.test(r) && r.length > 16);
   const dmarcRecord = dmarcTxt.find((r) => /v=DMARC1/i.test(r)) ?? null;
   const dmarc = !!dmarcRecord;
-  const dmarcPolicy = dmarcRecord
-    ? (/p=([a-z]+)/i.exec(dmarcRecord)?.[1] ?? null)
-    : null;
+  const dmarcPolicy = dmarcRecord ? parseDmarcPolicy(dmarcRecord) : null;
 
   return { domain, spf, mx, dkim, dmarc, dmarcPolicy, checkedAt };
 }

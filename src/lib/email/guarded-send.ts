@@ -1,9 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
-import { sendDraftEmail, SEND_FROM, type SendResult } from "@/lib/email/send";
+import {
+  sendDraftEmail,
+  SEND_FROM,
+  IS_LIVE,
+  sendFromDomain,
+  type SendResult,
+} from "@/lib/email/send";
 import { buildReplyTo, buildMessageId } from "@/lib/email/thread-token";
 import { unsubscribeHeaders, canSpamFooter } from "@/lib/email/compliance";
 import { isSuppressed } from "@/lib/email/suppression";
+import { isDomainVerified } from "@/lib/supabase/sending-domains";
 import { jurisdictionGate } from "@/lib/deliverability/jurisdiction";
 import { logOutboundEmail } from "@/lib/supabase/unibox";
 
@@ -67,6 +74,24 @@ export async function guardedSend(args: {
       suppressed: true,
       error: "that address is on your suppression list ... skipped, not sent.",
     };
+  }
+
+  // 1a. the live-send domain gate: a real send must leave an authenticated
+  // domain (spf + dkim + mx verified in the wizard). this is what makes the
+  // sending-domains wizard load-bearing, not just informational. a no-op in
+  // test mode (the send redirects to the user's own inbox anyway).
+  if (IS_LIVE) {
+    const fromDomain = sendFromDomain();
+    if (!(await isDomainVerified(fromDomain))) {
+      return {
+        sent: false,
+        mode: "live",
+        intendedFor: args.to,
+        deliveredTo: "",
+        blocked: true,
+        error: `live send blocked ... verify ${fromDomain} in deliverability first (spf + dkim + mx).`,
+      };
+    }
   }
 
   // 1b. jurisdiction: a cold send to a strict-opt-in eu country (gdpr/eprivacy)

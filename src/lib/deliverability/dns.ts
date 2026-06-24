@@ -31,6 +31,12 @@ export function normalizeDomain(raw: string | null | undefined): string | null {
   return ok ? d : null;
 }
 
+// extract the DMARC domain policy (p=) from a record, anchored to a tag boundary
+// so it never matches the 'p=' inside sp= (subdomain policy) or any other tag.
+export function parseDmarcPolicy(record: string): string | null {
+  return /(?:^|[;\s])p=([a-z]+)/i.exec(record)?.[1]?.toLowerCase() ?? null;
+}
+
 // the records the user must add for `domain`. spf + dmarc are exact; mx + dkim
 // carry the host + a note (the values are resend-account-specific).
 export function expectedRecords(domain: string): DnsRecord[] {

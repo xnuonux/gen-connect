@@ -78,8 +78,9 @@ export function SendingDomains({ initial }: { initial: SendingDomain[] }) {
         sending domains
       </span>
       <p className="mt-1 text-[11px] leading-relaxed text-lunari-neutral-500">
-        authenticate a domain (spf + dkim + mx) before a live send ... without it
-        the 2024 bulk-sender rules reject every message at the smtp level.
+        authenticate a domain before a live send ... spf + dkim + mx make it
+        send-ready (the 2024 bulk-sender rules reject mail without them); dmarc is
+        strongly recommended on top.
       </p>
 
       <div className="mt-3 flex gap-2">

@@ -50,9 +50,3 @@ export async function checkDomainAction(raw: unknown): Promise<CheckResult> {
   revalidatePath("/deliverability");
   return { ok: true, check, domains: await listSendingDomains() };
 }
-
-export async function listDomainsAction(): Promise<SendingDomain[]> {
-  const user = await requireUser();
-  if (!user) return [];
-  return listSendingDomains();
-}

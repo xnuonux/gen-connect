@@ -8,9 +8,9 @@ import { SendingDomains } from "./SendingDomains";
 // the deliverability dashboard ... listmonk-tier visibility: send mode, live
 // volume + health (delivered / bounce rate / complaint rate / suppression off the
 // gc_deliverability_events ledger), the recent-events stream the resend webhook
-// feeds, and the readiness checklist (live/pending, honest). what remains is the
-// spf/dkim/dmarc dns wizard + warmup tracking on a verified domain. see
-// .claude/skills/deliverability.
+// feeds, the readiness checklist (live/pending, honest), and the spf/dkim/dmarc
+// sending-domains wizard. warmup tracking on a verified domain is the remaining
+// piece. see .claude/skills/deliverability.
 
 type CheckStatus = "live" | "pending";
 
@@ -308,9 +308,9 @@ export default async function DeliverabilityPage() {
           {s.sendFromDomain}
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-lunari-neutral-500">
-          bounce rate, complaint rate, suppression, the unsubscribe loop + auto-pause
-          are live now, fed by the resend webhook. what is left for a clean live send:
-          the spf / dkim / dmarc dns wizard + warmup tracking on a verified domain.
+          sends currently go out from {s.sendFromDomain}. add + verify the domains
+          you send from in the wizard above ... in live mode a send is refused until
+          its domain passes spf + dkim + mx.
         </p>
       </div>
     </div>

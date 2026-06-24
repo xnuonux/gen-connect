@@ -74,6 +74,22 @@ export async function addSendingDomain(
   return { ok: true };
 }
 
+// is this domain verified (spf + dkim + mx) for the current user? the live-send
+// gate reads this so a real send never leaves an unauthenticated domain. rls
+// scopes the read to the user.
+export async function isDomainVerified(rawDomain: string): Promise<boolean> {
+  const domain = normalizeDomain(rawDomain) ?? rawDomain.trim().toLowerCase();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("gc_sending_domains")
+    .select("id")
+    .eq("domain", domain)
+    .eq("status", "verified")
+    .limit(1)
+    .maybeSingle();
+  return !!data;
+}
+
 // persist a dns check. a domain is send-ready when spf + dkim + mx all pass
 // (resend's required three); dmarc is tracked as a recommended extra.
 export async function saveDomainVerification(
