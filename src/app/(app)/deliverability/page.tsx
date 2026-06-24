@@ -2,6 +2,8 @@ import { Check, Clock, Globe, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { cn } from "@/lib/utils/cn";
 import { deliverabilitySummary } from "@/lib/deliverability/summary";
+import { listSendingDomains } from "@/lib/supabase/sending-domains";
+import { SendingDomains } from "./SendingDomains";
 
 // the deliverability dashboard ... listmonk-tier visibility: send mode, live
 // volume + health (delivered / bounce rate / complaint rate / suppression off the
@@ -127,7 +129,10 @@ function HealthStat({
 }
 
 export default async function DeliverabilityPage() {
-  const s = await deliverabilitySummary();
+  const [s, sendingDomains] = await Promise.all([
+    deliverabilitySummary(),
+    listSendingDomains(),
+  ]);
   const live = s.sendMode === "live";
 
   return (
@@ -263,6 +268,11 @@ export default async function DeliverabilityPage() {
             );
           })}
         </ul>
+      </div>
+
+      {/* sending domains ... the spf/dkim/dmarc wizard */}
+      <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+        <SendingDomains initial={sendingDomains} />
       </div>
 
       {/* the warmup ramp */}
