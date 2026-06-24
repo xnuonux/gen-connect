@@ -159,12 +159,29 @@
   animation: gen-win-quote 1.9s var(--motion-easing) forwards;
 }
 
+/* the send-ready moment ... a single forest-green ring that blooms off a domain
+   the instant it authenticates (spf + dkim + mx). its OWN beat, deliberately not
+   the gold revenue win ... gold stays reserved for booked + closed. one-shot. */
+@keyframes gen-verify-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--gen-accent) 65%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 16px color-mix(in srgb, var(--gen-accent) 0%, transparent);
+  }
+}
+
+.gen-verify-pulse {
+  animation: gen-verify-pulse 1100ms var(--motion-easing) 1;
+}
+
 /* reduced motion: skip the entrance + celebration entirely, never leave an
    element stranded at opacity 0 during a zeroed-duration delay. */
 @media (prefers-reduced-motion: reduce) {
   .reveal-up,
   .gen-win-ring,
-  .gen-win-quote {
+  .gen-win-quote,
+  .gen-verify-pulse {
     animation: none;
   }
 }

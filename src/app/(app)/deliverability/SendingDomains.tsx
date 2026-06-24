@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, X, Plus, RefreshCw, Copy, Globe, ChevronDown } from "lucide-react";
+import { Check, X, Plus, RefreshCw, Copy, Globe, ChevronDown, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn";
 import { expectedRecords } from "@/lib/deliverability/dns";
@@ -34,6 +34,8 @@ export function SendingDomains({ initial }: { initial: SendingDomain[] }) {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [lastCheck, setLastCheck] = useState<Record<string, DnsCheck>>({});
   const [expanded, setExpanded] = useState<string | null>(initial[0]?.id ?? null);
+  // the id whose send-ready pulse is firing right now (one-shot, ~1.1s).
+  const [justVerifiedId, setJustVerifiedId] = useState<string | null>(null);
 
   async function onAdd() {
     const d = input.trim();
@@ -61,8 +63,17 @@ export function SendingDomains({ initial }: { initial: SendingDomain[] }) {
     setDomains(r.domains);
     setLastCheck((m) => ({ ...m, [dom.id]: r.check }));
     const ready = r.check.spf && r.check.dkim && r.check.mx;
-    if (ready) toast.success("verified ... this domain is send-ready.");
-    else toast.message("not verified yet ... records can take time to propagate.");
+    if (ready) {
+      toast.success("verified ... this domain is send-ready.");
+      // fire the forest-green send-ready pulse on this row, then clear it.
+      setJustVerifiedId(dom.id);
+      window.setTimeout(
+        () => setJustVerifiedId((cur) => (cur === dom.id ? null : cur)),
+        1200,
+      );
+    } else {
+      toast.message("not verified yet ... records can take time to propagate.");
+    }
   }
 
   function copy(text: string) {
@@ -115,36 +126,66 @@ export function SendingDomains({ initial }: { initial: SendingDomain[] }) {
             const recs = expectedRecords(d.domain);
             const open = expanded === d.id;
             const verified = d.status === "verified";
+            const pills = [
+              { label: "spf", ok: check ? check.spf : d.spfVerified },
+              { label: "dkim", ok: check ? check.dkim : d.dkimVerified },
+              ...(check ? [{ label: "mx", ok: check.mx }] : []),
+              { label: "dmarc", ok: check ? check.dmarc : d.dmarcVerified },
+            ];
             return (
               <div
                 key={d.id}
-                className="surface-raised overflow-hidden rounded-lg border border-lunari-surface-elevated bg-lunari-surface"
+                className={cn(
+                  "surface-raised planetarium overflow-hidden rounded-lg border bg-lunari-surface",
+                  verified
+                    ? "border-gen-accent/50 shadow-[0_0_24px_-10px_var(--gen-accent)]"
+                    : "border-lunari-surface-elevated",
+                  justVerifiedId === d.id && "gen-verify-pulse",
+                )}
               >
                 <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(open ? null : d.id)}
-                    className="planetarium flex items-center gap-2 text-left"
-                  >
-                    <Globe
-                      className={cn(
-                        "h-4 w-4 stroke-[1.25]",
-                        verified ? "text-gen-accent" : "text-lunari-neutral-400",
-                      )}
-                    />
-                    <span className="font-mono text-sm text-lunari-cream">{d.domain}</span>
-                    <ChevronDown
-                      className={cn(
-                        "h-3.5 w-3.5 stroke-[1.5] text-lunari-neutral-500 transition-transform",
-                        open && "rotate-180",
-                      )}
-                    />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(open ? null : d.id)}
+                      className="planetarium flex items-center gap-2 text-left"
+                    >
+                      <Globe
+                        className={cn(
+                          "h-4 w-4 stroke-[1.25]",
+                          verified ? "text-gen-accent" : "text-lunari-neutral-400",
+                        )}
+                      />
+                      <span className="font-mono text-sm text-lunari-cream">{d.domain}</span>
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 stroke-[1.5] text-lunari-neutral-500 transition-transform",
+                          open && "rotate-180",
+                        )}
+                      />
+                    </button>
+                    {verified ? (
+                      <span className="flex items-center gap-1 rounded-full border border-gen-accent/40 bg-gen-accent-soft px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-gen-accent">
+                        <ShieldCheck className="h-3 w-3 stroke-[1.5]" />
+                        send-ready
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-3">
-                    <Pill label="spf" ok={check ? check.spf : d.spfVerified} />
-                    <Pill label="dkim" ok={check ? check.dkim : d.dkimVerified} />
-                    {check ? <Pill label="mx" ok={check.mx} /> : null}
-                    <Pill label="dmarc" ok={check ? check.dmarc : d.dmarcVerified} />
+                    <span
+                      key={check?.checkedAt ?? "init"}
+                      className="flex items-center gap-3"
+                    >
+                      {pills.map((p, i) => (
+                        <span
+                          key={p.label}
+                          className="reveal-up"
+                          style={{ animationDelay: `${i * 70}ms` }}
+                        >
+                          <Pill label={p.label} ok={p.ok} />
+                        </span>
+                      ))}
+                    </span>
                     <button
                       type="button"
                       onClick={() => onCheck(d)}
