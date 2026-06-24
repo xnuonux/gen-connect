@@ -7,7 +7,6 @@ import {
   listThreads,
   getThreadMessages,
   getThreadHead,
-  logOutboundEmail,
   markThreadRead,
   touchContact,
   type UniboxThread,
@@ -17,10 +16,8 @@ import { getVoiceProfile } from "@/lib/supabase/voice";
 import { updateContactStage } from "@/lib/supabase/contacts";
 import { recordOutcome } from "@/lib/supabase/outcomes";
 import { draftReply, type ReplyTranscriptLine } from "@/lib/ai/reply";
-import { sendDraftEmail, SEND_FROM } from "@/lib/email/send";
-import { buildReplyTo, buildMessageId } from "@/lib/email/thread-token";
+import { guardedSend } from "@/lib/email/guarded-send";
 import { scrubVoice } from "@/lib/ai/scrub";
-import { randomUUID } from "node:crypto";
 
 async function requireUser() {
   const supabase = await createClient();
@@ -171,21 +168,20 @@ export async function sendReplyAction(
     // nothing reaches the unibox un-scrubbed, even a user-typed em-dash.
     const cleanBody = scrubVoice(parsed.data.body);
 
-    // thread the reply: a signed reply-to token routes their next reply back to
-    // this thread, and a stable Message-ID anchors in-reply-to / references.
-    const replyTo = buildReplyTo(parsed.data.threadId, SEND_FROM) ?? undefined;
-    const messageId = buildMessageId(
-      parsed.data.threadId,
-      SEND_FROM,
-      randomUUID().slice(0, 8),
-    );
+    if (!head.contactId) {
+      return { ok: false, error: "no contact on this thread ... can't send." };
+    }
 
-    const result = await sendDraftEmail({
+    // the one compliant send path: suppression-gated, rfc 8058 unsubscribe
+    // headers, threaded to this conversation, logged. test-mode-safe underneath.
+    const result = await guardedSend({
+      userId: user.id,
+      contactId: head.contactId,
       to: head.contactEmail,
       subject,
       body: cleanBody,
-      replyTo,
-      headers: { "Message-ID": messageId },
+      kind: "reply",
+      threadId: parsed.data.threadId,
     });
 
     if (!result.sent) {
@@ -195,19 +191,8 @@ export async function sendReplyAction(
       };
     }
 
-    if (head.contactId) {
-      await logOutboundEmail({
-        contactId: head.contactId,
-        threadId: parsed.data.threadId,
-        subject,
-        body: cleanBody,
-        externalId: result.id ?? null,
-        messageId,
-        toEmail: head.contactEmail,
-      });
-      // an outbound reply is a touch ... keep them fresh in the pipeline.
-      await touchContact(head.contactId);
-    }
+    // an outbound reply is a touch ... keep them fresh in the pipeline.
+    await touchContact(head.contactId);
 
     return { ok: true, mode: result.mode, deliveredTo: result.deliveredTo };
   } catch (err) {

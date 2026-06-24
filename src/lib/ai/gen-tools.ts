@@ -13,8 +13,7 @@ import {
   pipelineSummary,
   getContactEmail,
 } from "@/lib/supabase/copilot";
-import { sendDraftEmail } from "@/lib/email/send";
-import { logOutboundEmail } from "@/lib/supabase/unibox";
+import { guardedSend } from "@/lib/email/guarded-send";
 import { enrichContactAction } from "@/app/actions/enrichment";
 import { resolveFootprintAction } from "@/app/actions/footprint";
 import { generateDraftAction } from "@/app/actions/drafts";
@@ -476,15 +475,17 @@ export function buildGenTools(userId: string, tier: Tier) {
             error: "that contact has no email on file ... enrich it first.",
           };
         }
-        const result = await sendDraftEmail({ to: c.email, subject, body });
-        if (result.sent) {
-          await logOutboundEmail({
-            contactId,
-            subject,
-            body,
-            externalId: result.id,
-          });
-        }
+        // the one compliant send path: suppression-gated, unsubscribe headers +
+        // a can-spam footer (cold), threaded, logged. test-mode-safe underneath.
+        const result = await guardedSend({
+          userId,
+          contactId,
+          to: c.email,
+          subject,
+          body,
+          kind: "cold",
+        });
+        if (result.suppressed) return { sent: false, error: result.error };
         return result;
       },
     }),
