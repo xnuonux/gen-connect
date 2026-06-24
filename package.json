@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "voice-check": "bash scripts/check-em-dash.sh",
-    "ship": "pnpm typecheck && pnpm lint && pnpm voice-check"
+    "test": "node --import ./test/register-alias.mjs ./test/pure.ts",
+    "ship": "pnpm typecheck && pnpm lint && pnpm voice-check && pnpm test"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.81",
