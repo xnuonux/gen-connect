@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import {
   Sparkles,
@@ -52,6 +53,8 @@ export function UniboxView({
   initialThreads: UniboxThread[];
 }) {
   const queryClient = useQueryClient();
+  // one browser client for the view's lifetime, for the realtime channel.
+  const [supabase] = useState(() => createClient());
   const [selectedId, setSelectedId] = useState<string | null>(
     initialThreads[0]?.id ?? null,
   );
@@ -66,6 +69,9 @@ export function UniboxView({
     queryKey: ["unibox-threads"],
     queryFn: fetchThreads,
     initialData: initialThreads,
+    // realtime is primary (instant); the poll is the fallback floor if the
+    // socket is slow or drops ... same belt-and-suspenders as the signals feed.
+    refetchInterval: 20_000,
   });
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
@@ -74,7 +80,31 @@ export function UniboxView({
     queryKey: ["unibox-messages", selectedId],
     queryFn: () => fetchThreadMessages(selectedId as string),
     enabled: selectedId !== null,
+    // poll fallback for the open transcript, same as the thread list.
+    refetchInterval: 20_000,
   });
+
+  // the unibox comes alive: a realtime channel on gc_unibox_messages INSERT, so
+  // a reply threaded in by the resend webhook pops into the open transcript +
+  // bumps the thread list the instant it lands ... no manual refresh. RLS scopes
+  // which inserts this client receives. the callback only invalidates (no state
+  // set in the effect body), so it stays clear of the set-state-in-effect rule.
+  useEffect(() => {
+    const channel = supabase
+      .channel("gc-unibox-inbound")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "gc_unibox_messages" },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ["unibox-threads"] });
+          void queryClient.invalidateQueries({ queryKey: ["unibox-messages"] });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [supabase, queryClient]);
 
   const draftMut = useMutation({
     mutationFn: async () => {
