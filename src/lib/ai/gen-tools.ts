@@ -485,7 +485,9 @@ export function buildGenTools(userId: string, tier: Tier) {
           body,
           kind: "cold",
         });
-        if (result.suppressed) return { sent: false, error: result.error };
+        if (result.suppressed || result.blocked) {
+          return { sent: false, error: result.error };
+        }
         return result;
       },
     }),

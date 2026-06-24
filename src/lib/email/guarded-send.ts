@@ -4,10 +4,12 @@ import { sendDraftEmail, SEND_FROM, type SendResult } from "@/lib/email/send";
 import { buildReplyTo, buildMessageId } from "@/lib/email/thread-token";
 import { unsubscribeHeaders, canSpamFooter } from "@/lib/email/compliance";
 import { isSuppressed } from "@/lib/email/suppression";
+import { jurisdictionGate } from "@/lib/deliverability/jurisdiction";
 import { logOutboundEmail } from "@/lib/supabase/unibox";
 
 export type GuardedSendResult = SendResult & {
   suppressed?: boolean;
+  blocked?: boolean;
 };
 
 // find (or create) the contact's email thread so the send can carry a routing
@@ -65,6 +67,32 @@ export async function guardedSend(args: {
       suppressed: true,
       error: "that address is on your suppression list ... skipped, not sent.",
     };
+  }
+
+  // 1b. jurisdiction: a cold send to a strict-opt-in eu country (gdpr/eprivacy)
+  // is blocked unless consent is flagged on the contact. replies always pass.
+  if (args.kind === "cold") {
+    const supabase = await createClient();
+    const { data: c } = await supabase
+      .from("gc_contacts")
+      .select("country, jurisdiction_consent")
+      .eq("id", args.contactId)
+      .maybeSingle();
+    const verdict = jurisdictionGate({
+      country: (c?.country as string | null) ?? null,
+      kind: "cold",
+      consent: (c?.jurisdiction_consent as boolean | null) ?? null,
+    });
+    if (!verdict.allow) {
+      return {
+        sent: false,
+        mode: "test",
+        intendedFor: args.to,
+        deliveredTo: "",
+        blocked: true,
+        error: `${verdict.reason}.`,
+      };
+    }
   }
 
   const threadId =
