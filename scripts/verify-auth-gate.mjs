@@ -22,6 +22,7 @@ const PROTECTED = [
   "/gen",
   "/draft",
   "/onboarding",
+  "/billing",
 ];
 
 let fails = 0;
@@ -80,6 +81,14 @@ try {
     });
     // signed in: /pipeline should NOT bounce to /login (200, or a non-login redirect)
     ok("authed /pipeline is allowed through", !redirectsToLogin(res), `status=${res.status} loc=${res.headers.get("location")}`);
+    // the billing page must actually RENDER for a signed-in user (200), not just
+    // pass the gate ... a 200 proves the new route compiles + server-renders.
+    const billing = await fetch(`${BASE}/billing`, {
+      method: "GET",
+      redirect: "manual",
+      headers: { cookie: cookieHeader },
+    });
+    ok("authed /billing renders (200)", billing.status === 200, `status=${billing.status}`);
   }
 } catch (e) {
   console.log("  skip authed pass-through:", e.message);

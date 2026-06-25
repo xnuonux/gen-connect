@@ -14,6 +14,7 @@ const PROTECTED_PREFIXES = [
   "/gen",
   "/draft",
   "/onboarding",
+  "/billing",
 ];
 
 function isProtected(pathname: string): boolean {

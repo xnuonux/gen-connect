@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { Sparkles } from "lucide-react";
+import { Sparkles, CreditCard } from "lucide-react";
 import { Providers } from "@/app/providers";
 import { RailNav } from "@/app/(app)/RailNav";
 import { CommandPalette } from "@/components/shared/CommandPalette";
@@ -43,6 +43,13 @@ export default async function AppLayout({
           >
             <Sparkles className="h-4 w-4 stroke-[1.25] text-gen-accent" />
             <span>voice</span>
+          </Link>
+          <Link
+            href={"/billing" as Route}
+            className="planetarium flex items-center gap-3 px-3 py-2 rounded-md text-sm text-lunari-cream/80 hover:text-lunari-cream hover:bg-lunari-surface-elevated"
+          >
+            <CreditCard className="h-4 w-4 stroke-[1.25] text-lunari-neutral-400" />
+            <span>plan</span>
           </Link>
           <div className="px-3 py-2 rounded-md bg-lunari-black/40">
             <div className="text-xs text-lunari-neutral-400 mb-1">domain</div>
