@@ -6,7 +6,9 @@ import nextTypescript from "eslint-config-next/typescript";
 
 const eslintConfig = [
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
+    // docs/ holds handoff artifacts (e.g. the lunari port templates) that target
+    // ANOTHER repo's paths ... never linted/compiled here.
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "docs/**"],
   },
   ...nextCoreWebVitals,
   ...nextTypescript,
