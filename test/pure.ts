@@ -31,6 +31,7 @@ import { secretIsTrustworthy } from "../src/lib/email/secret.ts";
 import { presendVerdict } from "../src/lib/deliverability/presend.ts";
 import { normalizeDomain, expectedRecords, parseDmarcPolicy } from "../src/lib/deliverability/dns.ts";
 import { parseResendDomain, resendVerified } from "../src/lib/deliverability/resend-domains.ts";
+import { guardDecision } from "../src/lib/email/guard.ts";
 
 let pass = 0;
 let fail = 0;
@@ -217,6 +218,44 @@ ok("resend bad json -> null", parseResendDomain({}, "lunari.pro") === null);
 ok("resendVerified true", resendVerified({ id: "x", status: "verified" }) === true);
 ok("resendVerified pending false", resendVerified({ id: "x", status: "pending" }) === false);
 ok("resendVerified null false", resendVerified(null) === false);
+
+// --- guarded-send decision core (the gate ordering is safety-critical) ---
+const base = {
+  suppressed: false,
+  isLive: false,
+  domainVerified: true,
+  fromDomain: "lunari.pro",
+  country: null as string | null,
+  consent: null as boolean | null,
+  kind: "cold" as "cold" | "reply",
+};
+// each gate fires when it should
+ok("guard suppressed blocks", (() => {
+  const v = guardDecision({ ...base, suppressed: true });
+  return v.allow === false && v.gate === "suppression" && v.suppressed === true && v.mode === "test";
+})());
+ok("guard live + unverified domain blocks", (() => {
+  const v = guardDecision({ ...base, isLive: true, domainVerified: false });
+  return v.allow === false && v.gate === "domain" && v.blocked === true && v.mode === "live";
+})());
+ok("guard test-mode skips domain gate", guardDecision({ ...base, isLive: false, domainVerified: false, country: "US" }).allow === true);
+ok("guard live + verified domain + US allows", guardDecision({ ...base, isLive: true, domainVerified: true, country: "US" }).allow === true);
+ok("guard cold DE no consent blocks", (() => {
+  const v = guardDecision({ ...base, country: "DE" });
+  return v.allow === false && v.gate === "jurisdiction" && v.blocked === true && v.mode === "test";
+})());
+ok("guard cold DE with consent allows", guardDecision({ ...base, country: "DE", consent: true }).allow === true);
+ok("guard reply to DE allows", guardDecision({ ...base, country: "DE", kind: "reply" }).allow === true);
+ok("guard cold unknown country allows", guardDecision({ ...base, country: null }).allow === true);
+// ordering: the earlier gate always wins
+ok("guard order: suppression beats jurisdiction", (() => {
+  const v = guardDecision({ ...base, suppressed: true, country: "DE" });
+  return v.allow === false && v.gate === "suppression";
+})());
+ok("guard order: domain beats jurisdiction", (() => {
+  const v = guardDecision({ ...base, isLive: true, domainVerified: false, country: "DE" });
+  return v.allow === false && v.gate === "domain";
+})());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

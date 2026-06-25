@@ -12,6 +12,7 @@
     "test": "node --import ./test/register-alias.mjs ./test/pure.ts",
     "verify:realtime": "node scripts/verify-realtime.mjs",
     "verify:inbound": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/load-env.mjs --import ./test/register-alias.mjs scripts/verify-inbound.mjs",
+    "verify:send": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/register-alias.mjs scripts/verify-send.mjs",
     "ship": "pnpm typecheck && pnpm lint && pnpm voice-check && pnpm test"
   },
   "dependencies": {

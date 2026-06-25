@@ -11,7 +11,7 @@ import { buildReplyTo, buildMessageId } from "@/lib/email/thread-token";
 import { unsubscribeHeaders, canSpamFooter } from "@/lib/email/compliance";
 import { isSuppressed } from "@/lib/email/suppression";
 import { isDomainVerified } from "@/lib/supabase/sending-domains";
-import { jurisdictionGate } from "@/lib/deliverability/jurisdiction";
+import { guardDecision } from "@/lib/email/guard";
 import { logOutboundEmail } from "@/lib/supabase/unibox";
 
 export type GuardedSendResult = SendResult & {
@@ -64,38 +64,20 @@ export async function guardedSend(args: {
   kind: "cold" | "reply";
   threadId?: string | null;
 }): Promise<GuardedSendResult> {
-  // 1. suppression: refuse before a byte leaves.
-  if (await isSuppressed(args.userId, args.to)) {
-    return {
-      sent: false,
-      mode: "test",
-      intendedFor: args.to,
-      deliveredTo: "",
-      suppressed: true,
-      error: "that address is on your suppression list ... skipped, not sent.",
-    };
-  }
+  // gather the gate inputs (only what each gate needs), then let the pure
+  // guardDecision enforce the order + the verdict. this keeps the io here and
+  // the ordering logic ... the safety-critical part ... in one tested function.
+  const suppressed = await isSuppressed(args.userId, args.to);
 
-  // 1a. the live-send domain gate: a real send must leave an authenticated
-  // domain (spf + dkim + mx verified in the wizard). this is what makes the
-  // sending-domains wizard load-bearing, not just informational. a no-op in
-  // test mode (the send redirects to the user's own inbox anyway).
-  if (IS_LIVE) {
-    const fromDomain = sendFromDomain();
-    if (!(await isDomainVerified(fromDomain))) {
-      return {
-        sent: false,
-        mode: "live",
-        intendedFor: args.to,
-        deliveredTo: "",
-        blocked: true,
-        error: `live send blocked ... verify ${fromDomain} in deliverability first (spf + dkim + mx).`,
-      };
-    }
-  }
+  const fromDomain = sendFromDomain();
+  // the live-send domain gate makes the sending-domains wizard load-bearing, not
+  // informational. only read the verification state when a real send is at stake.
+  let domainVerified = true;
+  if (IS_LIVE) domainVerified = await isDomainVerified(fromDomain);
 
-  // 1b. jurisdiction: a cold send to a strict-opt-in eu country (gdpr/eprivacy)
-  // is blocked unless consent is flagged on the contact. replies always pass.
+  // jurisdiction (gdpr/eprivacy) only applies to a cold first-touch; replies pass.
+  let country: string | null = null;
+  let consent: boolean | null = null;
   if (args.kind === "cold") {
     const supabase = await createClient();
     const { data: c } = await supabase
@@ -103,21 +85,29 @@ export async function guardedSend(args: {
       .select("country, jurisdiction_consent")
       .eq("id", args.contactId)
       .maybeSingle();
-    const verdict = jurisdictionGate({
-      country: (c?.country as string | null) ?? null,
-      kind: "cold",
-      consent: (c?.jurisdiction_consent as boolean | null) ?? null,
-    });
-    if (!verdict.allow) {
-      return {
-        sent: false,
-        mode: "test",
-        intendedFor: args.to,
-        deliveredTo: "",
-        blocked: true,
-        error: `${verdict.reason}.`,
-      };
-    }
+    country = (c?.country as string | null) ?? null;
+    consent = (c?.jurisdiction_consent as boolean | null) ?? null;
+  }
+
+  const verdict = guardDecision({
+    suppressed,
+    isLive: IS_LIVE,
+    domainVerified,
+    fromDomain,
+    country,
+    consent,
+    kind: args.kind,
+  });
+  if (!verdict.allow) {
+    return {
+      sent: false,
+      mode: verdict.mode,
+      intendedFor: args.to,
+      deliveredTo: "",
+      suppressed: verdict.suppressed,
+      blocked: verdict.blocked,
+      error: verdict.error,
+    };
   }
 
   const threadId =
