@@ -15,6 +15,7 @@
     "verify:send": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/register-alias.mjs scripts/verify-send.mjs",
     "verify:reserve": "node scripts/verify-reserve.mjs",
     "verify:auth": "node scripts/verify-auth-gate.mjs",
+    "verify:billing": "node scripts/verify-billing.mjs",
     "ship": "pnpm typecheck && pnpm lint && pnpm voice-check && pnpm test"
   },
   "dependencies": {
@@ -42,6 +43,7 @@
     "react-dom": "19.0.0-rc-66855b96-20241106",
     "resend": "^4.0.0",
     "sonner": "^2.0.7",
+    "stripe": "^22.2.3",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.23.8"

@@ -32,6 +32,7 @@ import { presendVerdict } from "../src/lib/deliverability/presend.ts";
 import { normalizeDomain, expectedRecords, parseDmarcPolicy } from "../src/lib/deliverability/dns.ts";
 import { parseResendDomain, resendVerified } from "../src/lib/deliverability/resend-domains.ts";
 import { guardDecision } from "../src/lib/email/guard.ts";
+import { planForPriceId, tierForStatus, isPlanKey } from "../src/lib/billing/plans.ts";
 
 let pass = 0;
 let fail = 0;
@@ -256,6 +257,26 @@ ok("guard order: domain beats jurisdiction", (() => {
   const v = guardDecision({ ...base, isLive: true, domainVerified: false, country: "DE" });
   return v.allow === false && v.gate === "domain";
 })());
+
+// --- billing plan core (the webhook maps prices + statuses through this) ---
+const priceMap = { creator: "price_creator_x", pro: "price_pro_y" };
+ok("price -> creator", planForPriceId("price_creator_x", priceMap) === "creator");
+ok("price -> pro", planForPriceId("price_pro_y", priceMap) === "pro");
+ok("unknown price -> null", planForPriceId("price_nope", priceMap) === null);
+ok("empty map -> null", planForPriceId("price_creator_x", {}) === null);
+ok("isPlanKey creator", isPlanKey("creator") === true);
+ok("isPlanKey pro", isPlanKey("pro") === true);
+ok("isPlanKey junk", isPlanKey("enterprise") === false);
+ok("isPlanKey non-string", isPlanKey(42) === false);
+// status -> tier: active/trialing/past_due are paid (past_due = dunning grace),
+// everything else is free.
+ok("status active -> paid", tierForStatus("active") === "paid");
+ok("status trialing -> paid", tierForStatus("trialing") === "paid");
+ok("status past_due -> paid (grace)", tierForStatus("past_due") === "paid");
+ok("status canceled -> free", tierForStatus("canceled") === "free");
+ok("status unpaid -> free", tierForStatus("unpaid") === "free");
+ok("status incomplete -> free", tierForStatus("incomplete") === "free");
+ok("status paused -> free", tierForStatus("paused") === "free");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
