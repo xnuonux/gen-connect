@@ -12,7 +12,12 @@ export function PageHeader({
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
-        <h1 className="text-xl font-medium tracking-tight text-lunari-cream">
+        {/* cinzel carries the page title ... the signature family finally gets an
+            editorial moment beyond the wordmark + win quote (the visual-hierarchy lift). */}
+        <h1
+          style={{ fontFamily: "var(--font-cinzel)" }}
+          className="text-[28px] leading-tight tracking-tight text-lunari-cream"
+        >
           {title}
         </h1>
         {subtitle ? (

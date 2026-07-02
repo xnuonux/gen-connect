@@ -69,7 +69,10 @@ export function BillingView({
       <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
         plans
       </span>
-      <h1 className="mt-2 text-[28px] leading-tight text-lunari-cream">
+      <h1
+        style={{ fontFamily: "var(--font-cinzel)" }}
+        className="mt-2 text-[28px] leading-tight text-lunari-cream"
+      >
         open more doors.
       </h1>
       <p className="mt-2 max-w-lg text-sm leading-relaxed text-lunari-neutral-400">

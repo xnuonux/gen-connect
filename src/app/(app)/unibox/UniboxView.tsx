@@ -290,7 +290,7 @@ export function UniboxView({
                   type="button"
                   onClick={() => draftMut.mutate()}
                   disabled={draftMut.isPending}
-                  className="planetarium flex items-center gap-2 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-1.5 text-xs font-medium text-gen-accent hover:bg-gen-accent-soft disabled:opacity-50"
+                  className="planetarium flex items-center gap-2 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-1.5 text-xs font-medium text-gen-accent hover:bg-gen-accent/20 disabled:opacity-50"
                 >
                   <Sparkles
                     className={cn(
@@ -378,7 +378,7 @@ export function UniboxView({
                 selected.contact && bookMut.mutate(selected.contact.id)
               }
               disabled={bookMut.isPending}
-              className="planetarium flex w-full items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-2 text-xs font-medium text-gen-accent hover:bg-gen-accent-soft disabled:opacity-50"
+              className="planetarium flex w-full items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-2 text-xs font-medium text-gen-accent hover:bg-gen-accent/20 disabled:opacity-50"
             >
               <CalendarCheck className="h-3.5 w-3.5 stroke-[1.25]" />
               <span>{bookMut.isPending ? "marking ..." : "mark booked"}</span>

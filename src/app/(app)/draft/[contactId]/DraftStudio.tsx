@@ -610,7 +610,10 @@ function AngleCard({
     <div
       style={{ animationDelay: `${index * 55}ms` }}
       className={cn(
-        "reveal-up planetarium rounded-md border bg-lunari-surface p-4",
+        "reveal-up planetarium rounded-md border p-4",
+        // the winner is the screen's one focal element ... lifted a tier above the
+        // rest so the eye lands on it, without spending the reserved gold.
+        isWinner ? "surface-focal" : "bg-lunari-surface",
         picked
           ? "border-gen-accent ring-1 ring-gen-accent"
           : "border-lunari-surface-elevated",

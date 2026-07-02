@@ -4,12 +4,8 @@ import { Sparkles, CreditCard } from "lucide-react";
 import { Providers } from "@/app/providers";
 import { RailNav } from "@/app/(app)/RailNav";
 import { CommandPalette } from "@/components/shared/CommandPalette";
+import { HeroStat } from "@/components/shared/HeroStat";
 import { workspaceStats } from "@/lib/supabase/stats";
-
-// the dollars-not-fuel hero: whole dollars, comma-grouped. cents in, $ out.
-function formatUsd(cents: number): string {
-  return "$" + Math.round(cents / 100).toLocaleString("en-US");
-}
 
 export default async function AppLayout({
   children,
@@ -65,9 +61,7 @@ export default async function AppLayout({
         {/* top bar */}
         <header className="h-12 border-b border-lunari-surface-elevated bg-lunari-surface/60 backdrop-blur flex items-center px-6">
           <div className="flex items-baseline gap-2.5">
-            <span className="text-glow-gold font-mono text-lg font-semibold tabular-nums text-lunari-gold">
-              {formatUsd(stats.opportunitiesCents)}
-            </span>
+            <HeroStat cents={stats.opportunitiesCents} />
             <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
               in opportunities since launch
             </span>
