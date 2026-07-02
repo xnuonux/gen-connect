@@ -102,6 +102,17 @@
       0 12px 32px -16px color-mix(in srgb, var(--lunari-black) 88%, transparent);
   }
 
+  /* the focal tier ... one step above surface-raised, for the ONE high-emphasis
+     element per screen (the rank-0 signal, the winning angle, the send bar, the
+     day's send volume). a lighter surface + a stronger inset top-highlight + a
+     deeper drop, so the eye lands here without spending the reserved gold. */
+  .surface-focal {
+    background-color: color-mix(in srgb, var(--lunari-cream) 3%, var(--lunari-surface));
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, var(--lunari-cream) 9%, transparent) inset,
+      0 18px 44px -22px color-mix(in srgb, var(--lunari-black) 92%, transparent);
+  }
+
   /* the one gold moment, lit ... a quiet glow under the hero number. */
   .text-glow-gold {
     text-shadow: 0 0 20px color-mix(in srgb, var(--lunari-gold) 32%, transparent);

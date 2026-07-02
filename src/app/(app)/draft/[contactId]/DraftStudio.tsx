@@ -3,7 +3,16 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { Sparkles, RefreshCw, Check, Copy, ArrowLeft, Search } from "lucide-react";
+import {
+  Sparkles,
+  RefreshCw,
+  Check,
+  Copy,
+  ArrowLeft,
+  Search,
+  Send,
+  GitBranch,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
@@ -11,16 +20,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   generateDraftAction,
   overrideAngleAction,
+  sendFirstTouchAction,
 } from "@/app/actions/drafts";
+import { fetchSequences, enrollContactsAction } from "@/app/actions/sequences";
 import { enrichContactAction } from "@/app/actions/enrichment";
 import { ANGLE_LABELS, type AngleType } from "@/lib/types/draft";
 import type { DraftRecord, DraftAngleRecord } from "@/lib/supabase/drafts";
 import type { PresendVerdict } from "@/lib/deliverability/presend";
+import type { SequenceSummary } from "@/lib/types/sequence";
 
 type StudioContact = {
   id: string;
   name: string | null;
   title: string | null;
+  email: string | null;
   company: string | null;
 };
 
@@ -195,8 +208,192 @@ export function DraftStudio({
               onPick={() => onPick(angle)}
             />
           ))}
+
+          {picked ? (
+            <SendEnrollBar
+              contactId={contact.id}
+              hasEmail={!!contact.email}
+              presend={presend}
+              pickedLabel={
+                ANGLE_LABELS[
+                  (ordered.find((a) => a.id === picked)?.angle_type ??
+                    "shared_context") as AngleType
+                ]
+              }
+            />
+          ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+// close the cold half of the loop, right where the draft was perfected: send the
+// picked angle now (test-mode-safe guardedSend) or enroll it in a sequence. the
+// pre-send verdict already rendered above GATES the send ... blocked disables,
+// warn confirms, ready goes. a real send fires the forest-green verify-pulse as
+// its own beat (gold stays reserved for booked/closed).
+function SendEnrollBar({
+  contactId,
+  hasEmail,
+  presend,
+  pickedLabel,
+}: {
+  contactId: string;
+  hasEmail: boolean;
+  presend: PresendVerdict | null;
+  pickedLabel: string;
+}) {
+  const [sending, setSending] = useState(false);
+  const [pulse, setPulse] = useState(false);
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [sequences, setSequences] = useState<SequenceSummary[] | null>(null);
+  const [loadingSeqs, setLoadingSeqs] = useState(false);
+  const [enrolling, setEnrolling] = useState<string | null>(null);
+
+  const blocked = presend?.status === "blocked";
+  const sendDisabled = sending || !hasEmail || blocked;
+
+  async function onSend() {
+    if (!hasEmail) {
+      toast.error("no email on this contact ... enrich or add one first.");
+      return;
+    }
+    if (blocked) {
+      toast.error(presend?.headline ?? "pre-send blocked this one.");
+      return;
+    }
+    if (presend?.status === "warn") {
+      const go = window.confirm(
+        `${presend.headline}\n\n${presend.reasons.join("\n")}\n\nsend anyway?`,
+      );
+      if (!go) return;
+    }
+    setSending(true);
+    const r = await sendFirstTouchAction({ contactId });
+    setSending(false);
+    if (!r.ok) {
+      toast.error(r.error);
+      return;
+    }
+    setPulse(true);
+    window.setTimeout(() => setPulse(false), 1200);
+    toast.success(
+      r.mode === "live"
+        ? `sent to ${r.deliveredTo}. thats the move.`
+        : `test send ... landed in ${r.deliveredTo}.`,
+    );
+  }
+
+  async function onToggleEnroll() {
+    const next = !enrollOpen;
+    setEnrollOpen(next);
+    if (next && sequences === null) {
+      setLoadingSeqs(true);
+      const seqs = await fetchSequences();
+      setSequences(seqs);
+      setLoadingSeqs(false);
+    }
+  }
+
+  async function onEnroll(seqId: string) {
+    setEnrolling(seqId);
+    const r = await enrollContactsAction({
+      sequenceId: seqId,
+      contactIds: [contactId],
+    });
+    setEnrolling(null);
+    if (!r.ok) {
+      toast.error(r.error);
+      return;
+    }
+    setEnrollOpen(false);
+    toast.success("enrolled ... the sequence takes it from here.");
+  }
+
+  return (
+    <div
+      className={cn(
+        "surface-focal rounded-md border border-gen-accent/40 bg-lunari-surface p-4",
+        pulse && "gen-verify-pulse",
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
+            ready to send
+          </div>
+          <div className="mt-0.5 text-sm text-lunari-cream">
+            the <span className="text-gen-accent">{pickedLabel}</span> angle
+            {!hasEmail ? " ... no email on this contact yet" : ""}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleEnroll}
+            className="planetarium flex items-center gap-2 rounded-md border border-lunari-surface-elevated bg-lunari-surface px-3 py-2 text-xs text-lunari-cream hover:bg-lunari-surface-elevated"
+          >
+            <GitBranch className="h-4 w-4 stroke-[1.25]" />
+            <span>enroll in sequence</span>
+          </button>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={sendDisabled}
+            className="planetarium flex items-center gap-2 rounded-md bg-gen-accent px-4 py-2 text-xs font-medium text-lunari-cream hover:bg-gen-accent/90 disabled:cursor-not-allowed disabled:bg-lunari-surface-elevated disabled:text-lunari-neutral-500"
+          >
+            <Send
+              className={cn("h-4 w-4 stroke-[1.25]", sending && "animate-pulse")}
+            />
+            <span>{sending ? "sending ..." : blocked ? "blocked" : "send now"}</span>
+          </button>
+        </div>
+      </div>
+
+      {blocked && presend?.reasons.length ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-lunari-crimson">
+          {presend.reasons.join(" · ")}
+        </p>
+      ) : null}
+
+      {enrollOpen ? (
+        <div className="mt-3 border-t border-lunari-surface-elevated pt-3">
+          {loadingSeqs ? (
+            <p className="text-xs text-lunari-neutral-400">
+              loading sequences ...
+            </p>
+          ) : sequences && sequences.length ? (
+            <div className="flex flex-wrap gap-2">
+              {sequences.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => onEnroll(s.id)}
+                  disabled={enrolling !== null}
+                  className="planetarium flex items-center gap-2 rounded-md border border-lunari-surface-elevated bg-lunari-surface px-3 py-1.5 text-xs text-lunari-cream hover:bg-lunari-surface-elevated disabled:opacity-50"
+                >
+                  <span>{s.name}</span>
+                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-lunari-neutral-500">
+                    {enrolling === s.id ? "enrolling ..." : s.status}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-lunari-neutral-400">
+              no sequences yet ...{" "}
+              <Link
+                href={"/campaigns" as Route}
+                className="text-gen-accent hover:underline"
+              >
+                build one in campaigns
+              </Link>
+              .
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

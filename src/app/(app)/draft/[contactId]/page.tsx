@@ -19,7 +19,7 @@ export default async function DraftPage({
 
   const { data: row } = await supabase
     .from("gc_contacts")
-    .select("id, name, title, enrichment_data, company:gc_companies(name, domain)")
+    .select("id, name, title, email, enrichment_data, company:gc_companies(name, domain)")
     .eq("id", contactId)
     .maybeSingle();
 
@@ -29,6 +29,7 @@ export default async function DraftPage({
     id: string;
     name: string | null;
     title: string | null;
+    email: string | null;
     enrichment_data: unknown;
     company: { name: string | null; domain: string | null } | null;
   };
@@ -66,6 +67,7 @@ export default async function DraftPage({
             id: c.id,
             name: c.name,
             title: c.title,
+            email: c.email ?? null,
             company: c.company?.name ?? null,
           }}
           initialDraft={draft}

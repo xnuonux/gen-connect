@@ -10,6 +10,7 @@ import {
   setUserOverride,
   type DraftRecord,
 } from "@/lib/supabase/drafts";
+import { guardedSend } from "@/lib/email/guarded-send";
 import { generateFiveAngles, type DraftObjective } from "@/lib/ai/drafting";
 import { judgeAngles } from "@/lib/ai/judge";
 import {
@@ -194,4 +195,89 @@ export async function latestDraftForContact(
   const user = await requireUser();
   if (!user) return null;
   return getLatestDraftForContact(contactId);
+}
+
+const SendFirstTouchInput = z.object({ contactId: z.string().uuid() });
+
+export type SendFirstTouchResult =
+  | { ok: true; mode: "test" | "live"; deliveredTo: string }
+  | { ok: false; error: string };
+
+// close the draft->send fork: send the picked angle as a cold first-touch, right
+// from the studio. resolves the winning (or user-overridden) angle's subject+body
+// from the persisted draft, then routes through guardedSend ... the SAME compliant,
+// test-mode-safe path the unibox reply + the gen copilot use (suppression gate,
+// jurisdiction gate, rfc-8058 headers, can-spam footer, unibox + ledger logging).
+// nothing but the contact id is trusted from the client. a real send never leaves
+// here un-gated ... the presend verdict rendered in the studio decides whether the
+// button is live; guardedSend re-checks the gates server-side regardless.
+export async function sendFirstTouchAction(
+  raw: unknown,
+): Promise<SendFirstTouchResult> {
+  const user = await requireUser();
+  if (!user) return { ok: false, error: "sign in to send ..." };
+
+  const parsed = SendFirstTouchInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "that contact didn't look right ..." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data: row } = await supabase
+      .from("gc_contacts")
+      .select("id, email")
+      .eq("id", parsed.data.contactId)
+      .maybeSingle();
+    const email = (row as { email: string | null } | null)?.email ?? null;
+    if (!email) {
+      return {
+        ok: false,
+        error: "no email on this contact ... enrich or add one before sending.",
+      };
+    }
+
+    const draft = await getLatestDraftForContact(parsed.data.contactId);
+    if (!draft) {
+      return { ok: false, error: "draft the five angles first ... nothing to send yet." };
+    }
+    const angleId = draft.user_override_angle_id ?? draft.winning_angle_id;
+    const angle =
+      draft.angles.find((a) => a.id === angleId) ?? draft.angles[0] ?? null;
+    if (!angle) {
+      return { ok: false, error: "pick an angle first ... choose the one to send." };
+    }
+
+    const result = await guardedSend({
+      userId: user.id,
+      contactId: parsed.data.contactId,
+      to: email,
+      subject: angle.subject,
+      body: angle.body,
+      kind: "cold",
+    });
+    if (!result.sent) {
+      return {
+        ok: false,
+        error:
+          result.error ??
+          (result.suppressed
+            ? "that address is on your suppression list ... skipped."
+            : "that send was blocked ... check the pre-send verdict."),
+      };
+    }
+
+    // sent ... the cold first-touch is in flight, so move drafted -> sequenced
+    // (the active-outreach bucket). best-effort; a saved send never fails on this.
+    try {
+      await updateContactStage(parsed.data.contactId, "sequenced");
+    } catch (stageError) {
+      console.error("[draft] post-send stage move failed", stageError);
+    }
+
+    return { ok: true, mode: result.mode, deliveredTo: result.deliveredTo };
+  } catch (err) {
+    console.error("[draft] send first touch failed", err);
+    return { ok: false, error: "couldn't send that ... give it another shot." };
+  }
 }
