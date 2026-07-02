@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { Search, CornerDownLeft } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { filterCommands, type PaletteCommand } from "@/lib/commands/registry";
+import {
+  filterCommands,
+  type PaletteCommand,
+  type ContactHit,
+} from "@/lib/commands/registry";
+import { searchContactsAction } from "@/app/actions/contacts";
 
 // the cmd+K command palette ... the keyboard twin of the copilot. hand-rolled
 // (no cmdk dep) for full token control + react 19 safety. opens on cmd/ctrl+K,
@@ -15,12 +21,64 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [contacts, setContacts] = useState<ContactHit[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const openRef = useRef(open);
   const wasOpenRef = useRef(false);
 
-  const results = useMemo(() => filterCommands(query), [query]);
+  // the palette is the copilot's keyboard twin: the static nav/do rows, a
+  // synthetic "ask gen" row that carries the query, and live contact hits.
+  const staticResults = useMemo(() => filterCommands(query), [query]);
+  const results = useMemo<PaletteCommand[]>(() => {
+    const list: PaletteCommand[] = [...staticResults];
+    const q = query.trim();
+    if (q.length > 0) {
+      list.push({
+        id: "ask-gen-dynamic",
+        label: `ask gen: "${q}"`,
+        group: "do",
+        kind: "ask",
+        query: q,
+        gen: true,
+        hint: "opens the copilot",
+      });
+    }
+    for (const c of contacts) {
+      list.push({
+        id: `contact-${c.id}`,
+        label: c.name ?? c.email ?? "unknown contact",
+        group: "contacts",
+        kind: "contact",
+        contactId: c.id,
+        hint: c.company ?? c.email ?? undefined,
+      });
+    }
+    return list;
+  }, [staticResults, contacts, query]);
+
+  // live contact search feeds the "contacts" group. debounced; RLS scopes the
+  // hits to the user. under two chars clears (never a match-everything). every
+  // setState lands inside the deferred timeout, never synchronously in the effect
+  // body ... keeps clear of the set-state-in-effect rule the whole app honors.
+  useEffect(() => {
+    const q = query.trim();
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      if (cancelled) return;
+      if (q.length < 2) {
+        setContacts([]);
+        return;
+      }
+      void searchContactsAction(q).then((hits) => {
+        if (!cancelled) setContacts(hits);
+      });
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [query]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -32,7 +90,14 @@ export function CommandPalette() {
     (cmd: PaletteCommand | undefined) => {
       if (!cmd) return;
       close();
-      router.push(cmd.href);
+      const kind = cmd.kind ?? "nav";
+      if (kind === "ask") {
+        router.push(`/gen?q=${encodeURIComponent(cmd.query ?? "")}` as Route);
+      } else if (kind === "contact" && cmd.contactId) {
+        router.push(`/draft/${cmd.contactId}` as Route);
+      } else if (cmd.href) {
+        router.push(cmd.href);
+      }
     },
     [close, router],
   );
@@ -86,7 +151,7 @@ export function CommandPalette() {
   }
 
   const groups = useMemo(() => {
-    const order: PaletteCommand["group"][] = ["go to", "do"];
+    const order: PaletteCommand["group"][] = ["go to", "do", "contacts"];
     return order
       .map((g) => ({ group: g, items: results.filter((c) => c.group === g) }))
       .filter((s) => s.items.length > 0);

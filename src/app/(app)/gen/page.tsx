@@ -10,7 +10,13 @@ import { GenChat } from "./GenChat";
 // the Gen copilot. one persistent forever-thread per user ... it loads here so
 // you pick up exactly where you left off, with gen's running memory of your
 // work folded in.
-export default async function GenPage() {
+export default async function GenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
+  const sp = await searchParams;
+  const seedInput = typeof sp.q === "string" ? sp.q : undefined;
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
 
@@ -39,6 +45,7 @@ export default async function GenPage() {
           conversationId={conversationId}
           initialMessages={initialMessages}
           summary={summary}
+          seedInput={seedInput}
         />
       </div>
     </div>

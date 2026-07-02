@@ -1,18 +1,32 @@
 import type { Route } from "next";
 
 // the command registry ... one flat, serializable list the palette renders +
-// filters. v1 is navigation + the two gen surfaces; row-actions + gen-tool
-// invocation hang off this same shape later (add a `run` kind, no refactor).
+// filters. the palette is the copilot's keyboard twin now: nav rows jump to a
+// tab, an `ask` row opens gen pre-seeded with the query, and `contact` rows are
+// live record hits that deep-link to the person. the `kind` discriminator is what
+// the registry comment always promised ("add a run kind, no refactor").
 export type PaletteCommand = {
   id: string;
   label: string;
-  group: "go to" | "do";
-  href: Route;
+  group: "go to" | "do" | "contacts";
+  // default 'nav'. 'ask' -> open the copilot with `query`; 'contact' -> open `contactId`.
+  kind?: "nav" | "ask" | "contact";
+  href?: Route; // nav destination
+  query?: string; // ask: the text seeded into the copilot composer
+  contactId?: string; // contact: the row to open
   hint?: string;
   // gen-authored surfaces wear the forest-green ring; nav stays neutral.
   gen?: boolean;
   // extra substrings the fuzzy match should catch beyond the label.
   keywords?: string;
+};
+
+// a live contact match surfaced in the palette's "contacts" group (name/email).
+export type ContactHit = {
+  id: string;
+  name: string | null;
+  company: string | null;
+  email: string | null;
 };
 
 export const COMMANDS: PaletteCommand[] = [

@@ -6,9 +6,11 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getContactDetail,
   listContacts,
+  searchContacts,
   updateContactStage,
 } from "@/lib/supabase/contacts";
 import { moveContactsStage, addContactTags } from "@/lib/supabase/copilot";
+import type { ContactHit } from "@/lib/commands/registry";
 import {
   KANBAN_STAGES,
   type Contact,
@@ -32,6 +34,14 @@ export type MoveContactResult = { ok: true } | { ok: false; error: string };
 // every contacts query stays in src/lib/supabase ... never inlined client-side.
 export async function fetchContacts(): Promise<Contact[]> {
   return listContacts();
+}
+
+// the command palette's live record search (name/email, RLS-scoped, capped at 6).
+// under two chars it returns nothing rather than match everything.
+export async function searchContactsAction(query: string): Promise<ContactHit[]> {
+  if (typeof query !== "string" || query.trim().length < 2) return [];
+  if (!(await signedIn())) return [];
+  return searchContacts(query);
 }
 
 const detailSchema = z.object({ contactId: z.string().uuid() });

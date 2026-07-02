@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { ContactHit } from "@/lib/commands/registry";
 import {
   KANBAN_STAGES,
   type Contact,
@@ -175,6 +176,35 @@ export async function getContactDetail(
     createdAt: row.created_at,
     lastActionAt: row.last_action_at,
   };
+}
+
+// the command palette's live record search ... a forgiving name/email match, RLS-
+// scoped to the caller, capped at 6. strips the chars that would break a postgrest
+// or() filter or act as ilike wildcards, so a literal "%" or "," can't misbehave.
+export async function searchContacts(query: string): Promise<ContactHit[]> {
+  const q = query.trim().replace(/[%_,()*]/g, " ").trim();
+  if (q.length < 2) return [];
+  const supabase = await createClient();
+  const like = `%${q}%`;
+  const { data } = await supabase
+    .from("gc_contacts")
+    .select("id, name, email, company:gc_companies(name)")
+    .in("stage", [...KANBAN_STAGES])
+    .or(`name.ilike.${like},email.ilike.${like}`)
+    .limit(6);
+  return (
+    (data ?? []) as unknown as {
+      id: string;
+      name: string | null;
+      email: string | null;
+      company: { name: string | null } | null;
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    company: r.company?.name ?? null,
+  }));
 }
 
 // move one contact to a new stage. RLS guarantees the row belongs to the

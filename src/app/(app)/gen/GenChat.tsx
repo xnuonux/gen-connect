@@ -40,10 +40,14 @@ export function GenChat({
   conversationId,
   initialMessages,
   summary,
+  seedInput,
 }: {
   conversationId: string;
   initialMessages: UIMessage[];
   summary: string | null;
+  // pre-seed the composer (the cmd+K "ask gen" row lands the query here via ?q=).
+  // seeded, not sent ... the human still hits enter, so nothing spends on a jump.
+  seedInput?: string;
 }) {
   const { messages, sendMessage, status, setMessages } = useChat({
     id: conversationId,
@@ -55,7 +59,7 @@ export function GenChat({
       },
     }),
   });
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(seedInput ?? "");
   const [stalled, setStalled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
