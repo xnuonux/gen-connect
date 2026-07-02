@@ -72,14 +72,24 @@ export async function GET(req: NextRequest) {
   });
 }
 
+// this confirmation page ships STANDALONE ... an email client opens it outside the
+// app, so there is no tailwind, no tokens.css, no design-system pipeline to consume.
+// the brand colors are inlined by necessity; naming them here (mirroring tokens.css)
+// keeps them documented + single-sourced instead of magic hex scattered in the html.
+const BRAND = {
+  black: "#08090e", // --lunari-black (page bg)
+  cream: "#f5ead8", // --lunari-cream (text)
+  gen: "#2d5f3f", // --gen-accent (the forest-green dot)
+} as const;
+
 // a tiny on-brand confirmation page (standalone ... no app shell, inline styles).
 function page(message: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>unsubscribe</title></head>
-<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#08090e;color:#f5ead8;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif">
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:${BRAND.black};color:${BRAND.cream};font-family:ui-sans-serif,system-ui,-apple-system,sans-serif">
 <div style="max-width:30rem;padding:2.5rem;text-align:center">
-<div style="width:8px;height:8px;border-radius:9999px;background:#2d5f3f;margin:0 auto 1.5rem;box-shadow:0 0 24px 2px #2d5f3f"></div>
-<p style="font-size:1.05rem;line-height:1.6;margin:0;color:#f5ead8">${message}</p>
+<div style="width:8px;height:8px;border-radius:9999px;background:${BRAND.gen};margin:0 auto 1.5rem;box-shadow:0 0 24px 2px ${BRAND.gen}"></div>
+<p style="font-size:1.05rem;line-height:1.6;margin:0;color:${BRAND.cream}">${message}</p>
 </div></body></html>`;
 }

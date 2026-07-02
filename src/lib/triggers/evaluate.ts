@@ -8,10 +8,10 @@ import {
 // contact } returning boolean. the condition is jsonb (no string dsl, ever ...
 // jsonb is the one source of truth, editable by a form ui or a raw toggle).
 // implicit AND across the top-level keys; `not` is a recursive negation.
-// exercised at runtime by the triggers dry-run (testTriggerAction); per-
-// signal_type fixture tests are pending (no test runner wired yet). see
-// docs/06-signals-spec.md "the predicate language". `nowMs` is injected so
-// freshness checks are deterministic.
+// exercised at runtime by the triggers dry-run (testTriggerAction) AND covered by
+// fixtures in test/pure.ts (type match, score_gte, _in / _includes_any, not-
+// negation, freshness). see docs/06-signals-spec.md "the predicate language".
+// `nowMs` is injected so freshness checks are deterministic.
 
 function lc(v: unknown): string {
   return String(v ?? "").toLowerCase();

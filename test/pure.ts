@@ -33,6 +33,17 @@ import { normalizeDomain, expectedRecords, parseDmarcPolicy } from "../src/lib/d
 import { parseResendDomain, resendVerified } from "../src/lib/deliverability/resend-domains.ts";
 import { guardDecision } from "../src/lib/email/guard.ts";
 import { planForPriceId, tierForStatus, isPlanKey } from "../src/lib/billing/plans.ts";
+import {
+  scrubVoice,
+  hasForbiddenDash,
+  findForbiddenPhrases,
+} from "../src/lib/ai/scrub.ts";
+import { FORBIDDEN_PHRASES } from "../src/lib/types/draft.ts";
+import { flameScore } from "../src/lib/signals/flame.ts";
+import { evaluateTrigger } from "../src/lib/triggers/evaluate.ts";
+import type { SignalHit, TriggerContact } from "../src/lib/types/signal.ts";
+import { validateGraph } from "../src/lib/sequences/validate.ts";
+import type { SequenceGraph } from "../src/lib/types/sequence.ts";
 
 let pass = 0;
 let fail = 0;
@@ -277,6 +288,107 @@ ok("status canceled -> free", tierForStatus("canceled") === "free");
 ok("status unpaid -> free", tierForStatus("unpaid") === "free");
 ok("status incomplete -> free", tierForStatus("incomplete") === "free");
 ok("status paused -> free", tierForStatus("paused") === "free");
+
+// --- scrubVoice: the load-bearing voice guarantee (docs/01-architecture.md) ---
+// the dash chars are built from codepoints, never embedded (the voice-check hook
+// blocks any source file that contains a literal em-dash, this test included).
+const EM = String.fromCharCode(0x2014);
+const EN = String.fromCharCode(0x2013);
+ok("scrub em-dash -> ...", scrubVoice(`a${EM}b`) === "a...b");
+ok("scrub en-dash -> ...", scrubVoice(`a${EN}b`) === "a...b");
+ok("scrub collapses 4+ dots", scrubVoice("a....b") === "a...b");
+ok("scrub two dashes collapse to one pause", scrubVoice(`${EM}${EM}`) === "...");
+ok("scrub leaves clean copy", scrubVoice("clean lowercase copy") === "clean lowercase copy");
+ok("scrub empty passthrough", scrubVoice("") === "");
+ok("hasForbiddenDash true", hasForbiddenDash(`a${EM}b`) === true);
+ok("hasForbiddenDash false", hasForbiddenDash("clean") === false);
+const knownPhrase: string = FORBIDDEN_PHRASES[0];
+ok(
+  "findForbiddenPhrases flags a known phrase",
+  findForbiddenPhrases(`hey ${knownPhrase} there`).includes(knownPhrase),
+);
+ok("findForbiddenPhrases clean -> empty", findForbiddenPhrases("zzz qqq wibble").length === 0);
+
+// --- flameScore: the deterministic floor, per signal_type intent class ---
+ok("flame hot searching_for = 0.8", flameScore({ signalType: "searching_for" }).score === 0.8);
+ok("flame warm product_launch = 0.65", flameScore({ signalType: "product_launch" }).score === 0.65);
+ok("flame base hiring = 0.5", flameScore({ signalType: "hiring" }).score === 0.5);
+ok("flame + senior title", flameScore({ signalType: "searching_for", raw: { title: "VP Growth" } }).score === 0.9);
+ok(
+  "flame + exact category",
+  flameScore({ signalType: "product_launch", raw: { category: "fintech" }, icpCategories: ["fintech"] }).score === 0.75,
+);
+ok(
+  "flame capped at 1.0",
+  flameScore({ signalType: "searching_for", raw: { title: "Chief X", category: "saas" }, icpCategories: ["saas"] }).score === 1,
+);
+
+// --- evaluateTrigger: the predicate matcher (nowMs injected for determinism) ---
+const HIT = {
+  signalType: "promotion",
+  aiScore: 0.8,
+  detectedAt: "2026-06-01T00:00:00.000Z",
+  raw: { industry: "fintech", new_title: "VP Marketing" },
+} as unknown as SignalHit;
+const NOW = Date.parse("2026-06-01T00:00:00.000Z") + 2 * 36e5; // +2h
+ok("trigger type match", evaluateTrigger({ signal_type: "promotion" }, HIT, null, NOW) === true);
+ok("trigger type mismatch", evaluateTrigger({ signal_type: "funding_round" }, HIT, null, NOW) === false);
+ok("trigger score_gte pass", evaluateTrigger({ score_gte: 0.75 }, HIT, null, NOW) === true);
+ok("trigger score_gte fail", evaluateTrigger({ score_gte: 0.9 }, HIT, null, NOW) === false);
+ok("trigger includes_any hit", evaluateTrigger({ raw: { industry_includes_any: ["saas", "fintech"] } }, HIT, null, NOW) === true);
+ok("trigger includes_any miss", evaluateTrigger({ raw: { industry_includes_any: ["crypto"] } }, HIT, null, NOW) === false);
+ok("trigger _in match", evaluateTrigger({ raw: { industry_in: ["fintech"] } }, HIT, null, NOW) === true);
+ok("trigger not-negation passes (inner false)", evaluateTrigger({ not: { raw: { industry_in: ["crypto"] } } }, HIT, null, NOW) === true);
+ok("trigger not-negation fails (inner true)", evaluateTrigger({ not: { raw: { industry_in: ["fintech"] } } }, HIT, null, NOW) === false);
+ok("trigger freshness within window", evaluateTrigger({ detected_within_hours: 72 }, HIT, null, NOW) === true);
+ok("trigger freshness stale", evaluateTrigger({ detected_within_hours: 1 }, HIT, null, NOW) === false);
+ok(
+  "trigger contact stage_not_in blocks",
+  evaluateTrigger({ contact: { stage_not_in: ["replied"] } }, HIT, { stage: "replied" } as unknown as TriggerContact, NOW) === false,
+);
+ok("trigger null contact defers the clause", evaluateTrigger({ contact: { stage_not_in: ["replied"] } }, HIT, null, NOW) === true);
+
+// --- validateGraph: the sequence publish gate ---
+const graph = (nodes: unknown[], edges: unknown[]) =>
+  ({ nodes, edges }) as unknown as SequenceGraph;
+const gnode = (id: string, type: string, data: Record<string, unknown> = {}) => ({
+  id,
+  type,
+  position: { x: 0, y: 0 },
+  data,
+});
+const gedge = (id: string, source: string, target: string) => ({
+  id,
+  source,
+  target,
+  sourceHandle: null,
+});
+const okSend = { channel: "email", subject: "hi", body: "yo" };
+ok(
+  "graph valid start->send->end publishes",
+  validateGraph(
+    graph(
+      [gnode("s", "start"), gnode("m", "send", okSend), gnode("e", "end")],
+      [gedge("e1", "s", "m"), gedge("e2", "m", "e")],
+    ),
+  ).length === 0,
+);
+ok("graph empty is flagged", validateGraph(graph([], [])).length === 1);
+ok(
+  "graph send without body is flagged",
+  validateGraph(
+    graph(
+      [gnode("s", "start"), gnode("m", "send", { channel: "email", subject: "hi", body: "" }), gnode("e", "end")],
+      [gedge("e1", "s", "m"), gedge("e2", "m", "e")],
+    ),
+  ).some((i) => i.message.includes("body")),
+);
+ok(
+  "graph with no end is flagged",
+  validateGraph(
+    graph([gnode("s", "start"), gnode("m", "send", okSend)], [gedge("e1", "s", "m")]),
+  ).length > 0,
+);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
