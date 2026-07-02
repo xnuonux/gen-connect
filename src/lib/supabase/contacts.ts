@@ -140,7 +140,7 @@ export async function getContactDetail(
   const { data, error } = await supabase
     .from("gc_contacts")
     .select(
-      "id, name, email, title, stage, ai_score, warmth_score, linkedin_url, last_action_at, created_at, enrichment_data, company:gc_companies(name, domain)",
+      "id, name, email, title, stage, ai_score, warmth_score, linkedin_url, source, source_signal_id, last_action_at, created_at, enrichment_data, company:gc_companies(name, domain)",
     )
     .eq("id", contactId)
     .maybeSingle();
@@ -152,6 +152,8 @@ export async function getContactDetail(
 
   const row = data as unknown as ContactRow & {
     linkedin_url: string | null;
+    source: string | null;
+    source_signal_id: string | null;
     enrichment_data: Record<string, unknown> | null;
   };
   const ed =
@@ -159,6 +161,13 @@ export async function getContactDetail(
       ? row.enrichment_data
       : {};
   const presence = parsePresence(ed.footprint);
+
+  // the provenance chain, from data already on the row. signal_type + the agent
+  // objective + the raw payload were stamped into enrichment_data at detection.
+  const objective =
+    ed.objective && typeof ed.objective === "object"
+      ? strOrNull((ed.objective as Record<string, unknown>).goal)
+      : null;
 
   return {
     id: row.id,
@@ -172,6 +181,15 @@ export async function getContactDetail(
     linkedinUrl: row.linkedin_url ?? strOrNull(ed.linkedin_url),
     location: strOrNull(ed.location) ?? presence?.location ?? null,
     hook: strOrNull(ed.hook),
+    provenance: {
+      source: strOrNull(row.source),
+      signalType: strOrNull(ed.signal_type),
+      category: strOrNull(ed.category) ?? strOrNull(ed.industry),
+      geo: strOrNull(ed.geo),
+      company: row.company?.name ?? strOrNull(ed.company),
+      objective,
+      signalId: strOrNull(row.source_signal_id),
+    },
     presence,
     createdAt: row.created_at,
     lastActionAt: row.last_action_at,

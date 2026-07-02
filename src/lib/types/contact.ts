@@ -69,6 +69,20 @@ export type ContactPresence = {
   sources: string[];
 };
 
+// the "why they're here" chain ... the wedge made legible in the ui, not just the
+// email. built from data already stamped on the row (source lane + the signal
+// payload persisted into enrichment_data at detection time). the spec leans hard
+// on this ("this is how the wedge proves itself in the UI"); the drawer renders it.
+export type ContactProvenance = {
+  source: string | null; // the lane: signal | csv | gen | manual
+  signalType: string | null; // e.g. searching_for, tool_mention
+  category: string | null; // industry / category
+  geo: string | null;
+  company: string | null;
+  objective: string | null; // the agent's goal ... the ask the drafter chases
+  signalId: string | null; // source_signal_id -> link back to /signals
+};
+
 // the full contact the side drawer reads ... lazy-loaded per contact on open
 // (never folded into the board query, which stays lean across 1000+ cards).
 export type ContactDetail = {
@@ -84,6 +98,8 @@ export type ContactDetail = {
   location: string | null;
   // the personalization hook the 5-angle drafter opens with.
   hook: string | null;
+  // why-they're-here ... the source lane + the signal chain, from data on the row.
+  provenance: ContactProvenance | null;
   // the public-footprint person-graph, null until resolve_footprint runs.
   presence: ContactPresence | null;
   createdAt: string;

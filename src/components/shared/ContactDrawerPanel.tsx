@@ -18,7 +18,11 @@ import {
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
 import { StageChip } from "@/components/shared/StageChip";
-import type { ContactDetail, ContactPresenceLink } from "@/lib/types/contact";
+import type {
+  ContactDetail,
+  ContactPresenceLink,
+  ContactProvenance,
+} from "@/lib/types/contact";
 import {
   OUTCOME_TYPES,
   OUTCOME_LABELS,
@@ -48,6 +52,57 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
       {children}
     </span>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  signal: "surfaced by a signal",
+  csv: "imported from a csv",
+  gen: "added by gen",
+  manual: "added by hand",
+};
+
+// "why they're here" ... the provenance chain, from data already on the row (the
+// source lane + the signal payload stamped at detection). neutral tokens on
+// purpose: this is metadata, not gen-authored content, so forest-green stays
+// reserved. this is the wedge made legible in the ui, not just in the email.
+function WhyHere({ provenance }: { provenance: ContactProvenance }) {
+  const p = provenance;
+  const chain = [
+    p.signalType?.replace(/_/g, " "),
+    p.category,
+    p.geo,
+    p.company,
+  ].filter(Boolean) as string[];
+  return (
+    <section className="space-y-2">
+      <SectionLabel>why they&apos;re here</SectionLabel>
+      <div className="space-y-1.5 rounded-md border border-lunari-surface-elevated bg-lunari-black/30 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs text-lunari-cream/90">
+          <Radar className="h-3.5 w-3.5 shrink-0 stroke-[1.25] text-lunari-neutral-400" />
+          <span>{SOURCE_LABEL[p.source ?? ""] ?? "in your pipeline"}</span>
+        </div>
+        {chain.length ? (
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-400">
+            {chain.join("  ·  ")}
+          </p>
+        ) : null}
+        {p.objective ? (
+          <p className="text-[11px] leading-relaxed text-lunari-neutral-400">
+            the ask ... {p.objective}
+          </p>
+        ) : null}
+        {p.signalId ? (
+          <Link
+            href={"/signals" as Route}
+            className="planetarium inline-flex items-center gap-1 text-[11px] text-lunari-neutral-500 hover:text-lunari-cream"
+          >
+            <Radar className="h-3 w-3 stroke-[1.25]" />
+            <span>see the signal that surfaced them</span>
+          </Link>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -265,6 +320,10 @@ export function ContactDrawerPanel({
                 </a>
               ) : null}
             </div>
+          ) : null}
+
+          {detail.provenance ? (
+            <WhyHere provenance={detail.provenance} />
           ) : null}
 
           {/* the presence person-graph ... the "find the person" payoff */}
