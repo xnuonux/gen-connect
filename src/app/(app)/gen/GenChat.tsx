@@ -3,7 +3,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { Sparkles, ArrowUp, Check, Circle } from "lucide-react";
+import {
+  Sparkles,
+  ArrowUp,
+  Check,
+  Circle,
+  Search,
+  BadgeCheck,
+  Download,
+  Radar,
+  PenLine,
+  ListChecks,
+  Send,
+  Wand2,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { Markdown } from "@/components/shared/Markdown";
 import { fetchGenThread } from "@/app/actions/gen";
@@ -193,7 +207,15 @@ export function GenChat({
 type Block =
   | { t: "text"; text: string }
   | { t: "plan"; steps: PlanStep[] }
-  | { t: "tool"; label: string; done: boolean; errored: boolean; detail: string; count: number };
+  | {
+      t: "tool";
+      name: string;
+      label: string;
+      done: boolean;
+      errored: boolean;
+      detail: string;
+      count: number;
+    };
 
 // collapse a message's parts into render blocks, merging consecutive tool markers
 // of the same label into one (gen calling draft_angles once per contact should read
@@ -234,7 +256,7 @@ function toBlocks(parts: LoosePart[]): Block[] {
         prev.errored = errored || prev.errored;
         if (detail) prev.detail = detail;
       } else {
-        blocks.push({ t: "tool", label, done, errored, detail, count: 1 });
+        blocks.push({ t: "tool", name, label, done, errored, detail, count: 1 });
       }
     }
   }
@@ -276,28 +298,7 @@ function MessageRow({ message }: { message: UIMessage }) {
         if (b.t === "plan") {
           return <PlanChecklist key={i} steps={b.steps} />;
         }
-        return (
-          <div
-            key={i}
-            className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-500"
-          >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                b.errored
-                  ? "bg-lunari-crimson"
-                  : b.done
-                    ? "bg-gen-accent"
-                    : "animate-pulse bg-lunari-neutral-400",
-              )}
-            />
-            <span>
-              {b.label}
-              {b.count > 1 ? ` · ${b.count}x` : ""}
-              {b.detail}
-            </span>
-          </div>
-        );
+        return <ToolCard key={i} block={b} />;
       })}
     </div>
   );
@@ -348,6 +349,82 @@ function PlanChecklist({ steps }: { steps: PlanStep[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// one icon per tool ... the belt made legible. unmapped tools fall back to Wand2.
+const TOOL_ICON: Record<string, LucideIcon> = {
+  find_leads: Search,
+  find_leads_by_icp: Search,
+  verify_emails: BadgeCheck,
+  load_contacts: Download,
+  import_leads: Download,
+  enrich_contact: Radar,
+  bulk_enrich: Radar,
+  resolve_footprint: Radar,
+  draft_angles: PenLine,
+  list_contacts: ListChecks,
+  pipeline_summary: ListChecks,
+  move_stage: ListChecks,
+  tag_contacts: ListChecks,
+  log_outcome: Sparkles,
+  send_email: Send,
+};
+
+// a living tool card ... the copilot stops reading like a terminal and starts
+// feeling like a teammate at work. an icon tile, the label + fan-out count, the
+// result chip (leads found / loaded), and a lifecycle indicator: a pulsing dot
+// while it runs, a forest-green check when it lands, a crimson dot on error.
+function ToolCard({ block }: { block: Extract<Block, { t: "tool" }> }) {
+  const Icon = TOOL_ICON[block.name] ?? Wand2;
+  const pending = !block.done && !block.errored;
+  const detail = block.detail.replace(/^\s*·\s*/, "");
+  return (
+    <div
+      className={cn(
+        "planetarium flex items-center gap-3 rounded-md border bg-lunari-surface px-3 py-2",
+        block.errored
+          ? "border-lunari-crimson/40"
+          : block.done
+            ? "border-gen-accent/30"
+            : "border-lunari-surface-elevated",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+          block.done
+            ? "bg-gen-accent-soft text-gen-accent"
+            : "bg-lunari-surface-elevated text-lunari-neutral-400",
+        )}
+      >
+        <Icon className={cn("h-3.5 w-3.5 stroke-[1.5]", pending && "animate-pulse")} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm text-lunari-cream">{block.label}</span>
+          {block.count > 1 ? (
+            <span className="font-mono text-[10px] text-lunari-neutral-500">
+              {block.count}x
+            </span>
+          ) : null}
+        </div>
+        {detail ? (
+          <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-lunari-neutral-500">
+            {detail}
+          </div>
+        ) : null}
+      </div>
+      <span className="flex shrink-0 items-center justify-center">
+        {block.errored ? (
+          <span className="h-2 w-2 rounded-full bg-lunari-crimson" />
+        ) : block.done ? (
+          <Check className="h-4 w-4 stroke-[1.5] text-gen-accent" />
+        ) : (
+          <span className="h-2 w-2 animate-pulse rounded-full bg-lunari-neutral-400" />
+        )}
+      </span>
     </div>
   );
 }
