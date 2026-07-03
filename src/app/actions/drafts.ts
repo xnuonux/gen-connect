@@ -8,6 +8,8 @@ import {
   createDraftFromGeneration,
   getLatestDraftForContact,
   setUserOverride,
+  claimDraftForSend,
+  releaseDraftClaim,
   type DraftRecord,
 } from "@/lib/supabase/drafts";
 import { guardedSend } from "@/lib/email/guarded-send";
@@ -241,6 +243,15 @@ export async function sendFirstTouchAction(
     if (!draft) {
       return { ok: false, error: "draft the five angles first ... nothing to send yet." };
     }
+    // already gone out? the persisted 'sent' status is the durable lock (the
+    // studio's button-lock is only client state and resets on reload).
+    if (draft.status === "sent") {
+      return {
+        ok: false,
+        error: "this draft already went out ... it's in the unibox now.",
+      };
+    }
+
     const angleId = draft.user_override_angle_id ?? draft.winning_angle_id;
     const angle =
       draft.angles.find((a) => a.id === angleId) ?? draft.angles[0] ?? null;
@@ -248,15 +259,39 @@ export async function sendFirstTouchAction(
       return { ok: false, error: "pick an angle first ... choose the one to send." };
     }
 
-    const result = await guardedSend({
-      userId: user.id,
-      contactId: parsed.data.contactId,
-      to: email,
-      subject: angle.subject,
-      body: angle.body,
-      kind: "cold",
-    });
+    // claim BEFORE dispatch (compare-and-set judged->sent). if we lose the cas, a
+    // concurrent send already took it ... refuse rather than double-send. this is the
+    // real idempotency guarantee; the button-lock is just the fast-path ux.
+    const claimed = await claimDraftForSend(draft.id);
+    if (!claimed) {
+      return {
+        ok: false,
+        error: "this draft already went out ... it's in the unibox now.",
+      };
+    }
+
+    let result;
+    try {
+      result = await guardedSend({
+        userId: user.id,
+        contactId: parsed.data.contactId,
+        to: email,
+        subject: angle.subject,
+        body: angle.body,
+        kind: "cold",
+      });
+    } catch (sendErr) {
+      // the dispatch may have gone out before this threw ... keep the claim (no
+      // retry) so we never risk a second copy. the user checks the unibox.
+      console.error("[draft] send threw after claim", sendErr);
+      return {
+        ok: false,
+        error: "couldn't confirm that send ... check the unibox before resending.",
+      };
+    }
     if (!result.sent) {
+      // cleanly gated before any dispatch ... safe to release for a retry.
+      await releaseDraftClaim(draft.id);
       return {
         ok: false,
         error:

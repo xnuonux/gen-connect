@@ -213,6 +213,7 @@ export function DraftStudio({
             <SendEnrollBar
               contactId={contact.id}
               hasEmail={!!contact.email}
+              alreadySent={draft?.status === "sent"}
               presend={presend}
               pickedLabel={
                 ANGLE_LABELS[
@@ -236,16 +237,20 @@ export function DraftStudio({
 function SendEnrollBar({
   contactId,
   hasEmail,
+  alreadySent,
   presend,
   pickedLabel,
 }: {
   contactId: string;
   hasEmail: boolean;
+  alreadySent: boolean;
   presend: PresendVerdict | null;
   pickedLabel: string;
 }) {
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  // seed the lock from the persisted draft status ... a draft that already went out
+  // stays locked across reloads (the server cas is the real guard; this is the ux).
+  const [sent, setSent] = useState(alreadySent);
   const [pulse, setPulse] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [sequences, setSequences] = useState<SequenceSummary[] | null>(null);

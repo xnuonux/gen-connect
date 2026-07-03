@@ -79,6 +79,34 @@ function slotValues(c: ContactLite): Record<string, string> {
   return v;
 }
 
+type Db = Awaited<ReturnType<typeof createClient>>;
+
+// claim a step by compare-and-set: move current_node_id from `from` to `to` ONLY if
+// the row still sits at `from`. returns true iff this call won the move. this is the
+// concurrency guard that makes the executor at-most-once ... two overlapping ticks
+// (two tabs, or the cron overlapping a manual "run due sends") both read the same
+// cursor, but only one wins the cas and gets to send; the loser sees false and bails.
+// a db error returns false (treated as a lost claim), so a flaky write never advances
+// the cursor past an unsent step.
+async function casAdvance(
+  db: Db,
+  id: string,
+  from: string | null,
+  to: string | null,
+): Promise<boolean> {
+  const base = db
+    .from("gc_sequence_enrollments")
+    .update({ current_node_id: to })
+    .eq("id", id);
+  const guarded =
+    from === null
+      ? base.is("current_node_id", null)
+      : base.eq("current_node_id", from);
+  const { data, error } = await guarded.select("id").maybeSingle();
+  if (error) return false;
+  return !!data;
+}
+
 export async function advanceDueEnrollments(
   opts: { sequenceId?: string; contactId?: string; nowMs?: number } = {},
 ): Promise<EnrollmentTickResult> {
@@ -187,7 +215,9 @@ export async function advanceDueEnrollments(
     const nodeData = new Map(graph.nodes.map((n) => [n.id, n.data ?? {}]));
     const elapsed = now - new Date(e.created_at).getTime();
 
-    let cursor = e.current_node_id ?? steps[0]?.nodeId ?? null;
+    // start the cursor at the row's REAL current_node_id (not a default), so the
+    // first compare-and-set matches the row exactly.
+    let cursor: string | null = e.current_node_id;
     let status: "active" | "completed" | "failed" = "active";
     let moved = false;
     const seed = seedFrom(e.contact_id);
@@ -197,15 +227,22 @@ export async function advanceDueEnrollments(
     for (const step of due) {
       if (sends >= MAX_SENDS) break; // don't burst past the per-tick ceiling mid-run
 
+      // claim the step BEFORE any side effect. losing the cas means another tick/tab/
+      // worker owns this enrollment ... bail so a send is never double-fired. claiming
+      // before the send is what makes delivery at-most-once: nothing after the claim
+      // retries, and for cold email a missed follow-up beats a duplicate to a prospect.
+      const claimed = await casAdvance(supabase, e.id, cursor, step.nodeId);
+      if (!claimed) break; // raced ... someone else has this enrollment this tick
+      cursor = step.nodeId;
+      moved = true;
+
       if (step.kind === "send") {
         const data = nodeData.get(step.nodeId) ?? {};
         const channel =
           typeof data.channel === "string" ? data.channel : "email";
         if (channel !== "email") {
           // linkedin/twitter dm nodes aren't wired to a sender ... pass over them
-          // rather than dead-drop, and keep walking the email path.
-          cursor = step.nodeId;
-          moved = true;
+          // (already claimed) and keep walking the email path.
           base.skipped += 1;
           continue;
         }
@@ -225,11 +262,10 @@ export async function advanceDueEnrollments(
           slots,
         );
         if (!subject && !body) {
-          cursor = step.nodeId;
-          moved = true;
           base.skipped += 1;
           continue;
         }
+        sends += 1;
         let res;
         try {
           res = await guardedSend({
@@ -241,13 +277,13 @@ export async function advanceDueEnrollments(
             kind: "cold",
           });
         } catch {
-          break; // transient failure ... stay active, don't advance, retry next tick
+          // the step is already claimed, so we do NOT retry ... at-most-once. the
+          // dispatch may have gone out before the throw; a duplicate is the worse sin.
+          base.skipped += 1;
+          continue;
         }
-        sends += 1;
         if (res.sent) {
           base.sent += 1;
-          cursor = step.nodeId;
-          moved = true;
           continue;
         }
         if (res.blocked || res.suppressed) {
@@ -255,28 +291,31 @@ export async function advanceDueEnrollments(
           // enrollment can't proceed. stop it cleanly rather than retry forever.
           status = "failed";
           base.failed += 1;
-          cursor = step.nodeId;
-          moved = true;
           break;
         }
-        break; // other not-sent ... treat as transient, retry next tick
+        // other clean not-sent ... already claimed, so no retry.
+        base.skipped += 1;
+        continue;
       }
 
-      // wait / condition / branch / start ... no side effect, just move the cursor.
-      cursor = step.nodeId;
-      moved = true;
+      // wait / condition / branch / start ... claimed, no side effect.
       if (step.kind === "end") {
         status = "completed";
         break;
       }
     }
 
-    if (!moved && status === "active") continue; // nothing due for this enrollment
-    const patch: Record<string, unknown> = { current_node_id: cursor };
-    if (status !== "active") patch.status = status;
-    await supabase.from("gc_sequence_enrollments").update(patch).eq("id", e.id);
+    if (!moved) continue; // nothing due (or lost the claim on the first step)
     base.advanced += 1;
-    if (status === "completed") base.completed += 1;
+    if (status !== "active") {
+      // the cursor is already persisted per-step by the cas; only the terminal
+      // status needs writing now.
+      await supabase
+        .from("gc_sequence_enrollments")
+        .update({ status })
+        .eq("id", e.id);
+      if (status === "completed") base.completed += 1;
+    }
   }
 
   return base;

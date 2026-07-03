@@ -312,6 +312,39 @@ export async function getLatestDraftForContact(
   return getDraftWithAngles(data.id as string);
 }
 
+// claim a judged draft for sending ... a compare-and-set (only from 'judged' to
+// 'sent') so two concurrent first-touches can never both win: exactly one flips the
+// row and proceeds, every other attempt loses the cas and is refused. this is the
+// SERVER-side idempotency behind the studio's send-lock (which is only client state
+// and resets on reload), so the same cold email can't be double-sent to a real
+// prospect. RLS scopes the update to the caller's draft. returns true if this call
+// won the claim.
+export async function claimDraftForSend(draftId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("gc_drafts")
+    .update({ status: "sent" })
+    .eq("id", draftId)
+    .eq("status", "judged")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(`could not claim that draft ... ${error.message}`);
+  return !!data;
+}
+
+// release a claim back to 'judged' ... ONLY when the send was cleanly gated before
+// any dispatch (blocked / suppressed), so the user can fix the gate and retry. never
+// called after a throw (a throw may mean the email already went out, so we keep the
+// claim and refuse a retry ... at-most-once beats a double-send).
+export async function releaseDraftClaim(draftId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("gc_drafts")
+    .update({ status: "judged" })
+    .eq("id", draftId)
+    .eq("status", "sent");
+}
+
 // record the user picking an angle other than the judge's winner. feeds the
 // learning loop later. RLS scopes the update to the caller's draft.
 export async function setUserOverride(
