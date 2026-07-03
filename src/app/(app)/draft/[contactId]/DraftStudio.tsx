@@ -245,6 +245,7 @@ function SendEnrollBar({
   pickedLabel: string;
 }) {
   const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
   const [pulse, setPulse] = useState(false);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [sequences, setSequences] = useState<SequenceSummary[] | null>(null);
@@ -252,7 +253,9 @@ function SendEnrollBar({
   const [enrolling, setEnrolling] = useState<string | null>(null);
 
   const blocked = presend?.status === "blocked";
-  const sendDisabled = sending || !hasEmail || blocked;
+  // once sent, the button locks ... a cold first-touch is a one-shot, so the same
+  // draft can never be silently re-sent from here (the reply lives in the unibox now).
+  const sendDisabled = sending || sent || !hasEmail || blocked;
 
   async function onSend() {
     if (!hasEmail) {
@@ -276,6 +279,7 @@ function SendEnrollBar({
       toast.error(r.error);
       return;
     }
+    setSent(true);
     setPulse(true);
     window.setTimeout(() => setPulse(false), 1200);
     toast.success(
@@ -321,11 +325,25 @@ function SendEnrollBar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
-            ready to send
+            {sent ? "sent" : "ready to send"}
           </div>
           <div className="mt-0.5 text-sm text-lunari-cream">
-            the <span className="text-gen-accent">{pickedLabel}</span> angle
-            {!hasEmail ? " ... no email on this contact yet" : ""}
+            {sent ? (
+              <>
+                the {pickedLabel} angle is out ...{" "}
+                <Link
+                  href={"/unibox" as Route}
+                  className="text-gen-accent hover:underline"
+                >
+                  watch for the reply in the unibox
+                </Link>
+              </>
+            ) : (
+              <>
+                the <span className="text-gen-accent">{pickedLabel}</span> angle
+                {!hasEmail ? " ... no email on this contact yet" : ""}
+              </>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -343,10 +361,25 @@ function SendEnrollBar({
             disabled={sendDisabled}
             className="planetarium flex items-center gap-2 rounded-md bg-gen-accent px-4 py-2 text-xs font-medium text-lunari-cream hover:bg-gen-accent/90 disabled:cursor-not-allowed disabled:bg-lunari-surface-elevated disabled:text-lunari-neutral-500"
           >
-            <Send
-              className={cn("h-4 w-4 stroke-[1.25]", sending && "animate-pulse")}
-            />
-            <span>{sending ? "sending ..." : blocked ? "blocked" : "send now"}</span>
+            {sent ? (
+              <Check className="h-4 w-4 stroke-[1.25]" />
+            ) : (
+              <Send
+                className={cn(
+                  "h-4 w-4 stroke-[1.25]",
+                  sending && "animate-pulse",
+                )}
+              />
+            )}
+            <span>
+              {sent
+                ? "sent"
+                : sending
+                  ? "sending ..."
+                  : blocked
+                    ? "blocked"
+                    : "send now"}
+            </span>
           </button>
         </div>
       </div>
