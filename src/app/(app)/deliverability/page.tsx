@@ -142,8 +142,8 @@ export default async function DeliverabilityPage() {
         subtitle="the inbox is the product ... your send mode, real volume, and the readiness checklist every send answers to."
       />
 
-      {/* send mode banner */}
-      <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+      {/* send mode banner ... the focal card of the page (are you safe to send?) */}
+      <div className="surface-focal rounded-lg border border-lunari-surface-elevated p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="h-4 w-4 stroke-[1.25] text-lunari-neutral-400" />

@@ -96,6 +96,23 @@ export function SignalsView({
     [hits],
   );
 
+  // the one focal card on this screen ... the single hottest hit (score >= 0.7). per
+  // the design system, gold marks the highest-scoring card, so the top signal gets the
+  // focal surface + a whisper of gold, and the rest of the feed stays even-weight. a
+  // feed of only-lukewarm hits has no false focal (nothing clears the bar).
+  const topHitId = useMemo(() => {
+    let id: string | null = null;
+    let best = 0.7;
+    for (const h of live) {
+      const s = h.aiScore ?? 0;
+      if (s >= best) {
+        best = s;
+        id = h.id;
+      }
+    }
+    return id;
+  }, [live]);
+
   return (
     <div className="space-y-6 px-8 py-6">
       <div className="flex items-start justify-between gap-4">
@@ -134,7 +151,9 @@ export function SignalsView({
               moment. the second someone fits, it lands here.
             </div>
           ) : (
-            live.map((hit) => <HitCard key={hit.id} hit={hit} />)
+            live.map((hit) => (
+              <HitCard key={hit.id} hit={hit} focal={hit.id === topHitId} />
+            ))
           )}
         </div>
       </section>
@@ -168,7 +187,7 @@ export function SignalsView({
   );
 }
 
-function HitCard({ hit }: { hit: SignalHitRow }) {
+function HitCard({ hit, focal = false }: { hit: SignalHitRow; focal?: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [dismissing, setDismissing] = useState(false);
@@ -202,7 +221,19 @@ function HitCard({ hit }: { hit: SignalHitRow }) {
   });
 
   return (
-    <div className="planetarium surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4 hover:-translate-y-px hover:border-gen-accent/30">
+    <div
+      className={cn(
+        "planetarium rounded-lg border p-4 hover:-translate-y-px",
+        focal
+          ? "surface-focal border-lunari-gold/40 hover:border-lunari-gold/60"
+          : "surface-raised border-lunari-surface-elevated bg-lunari-surface hover:border-gen-accent/30",
+      )}
+    >
+      {focal ? (
+        <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.2em] text-lunari-gold">
+          top signal
+        </div>
+      ) : null}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
