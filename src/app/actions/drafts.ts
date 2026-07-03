@@ -13,6 +13,7 @@ import {
   type DraftRecord,
 } from "@/lib/supabase/drafts";
 import { guardedSend } from "@/lib/email/guarded-send";
+import { summarizeFootprintForDraft } from "@/lib/enrichment/footprint";
 import { generateFiveAngles, type DraftObjective } from "@/lib/ai/drafting";
 import { judgeAngles } from "@/lib/ai/judge";
 import {
@@ -117,6 +118,11 @@ export async function generateDraftAction(
       company: { name: string | null; domain: string | null } | null;
     };
 
+    const footprintRaw =
+      c.enrichment_data && typeof c.enrichment_data === "object"
+        ? (c.enrichment_data as Record<string, unknown>).footprint
+        : null;
+
     const contact: DraftContact = {
       id: c.id,
       name: c.name,
@@ -126,6 +132,8 @@ export async function generateDraftAction(
       company_name: c.company?.name ?? null,
       company_domain: c.company?.domain ?? null,
       enrichment_hook: extractHook(c.enrichment_data),
+      // the wedge: feed the resolved person-graph in as real relationship context.
+      relationship_context: summarizeFootprintForDraft(footprintRaw),
     };
 
     const voiceProfile = await getVoiceProfile();

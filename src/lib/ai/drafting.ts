@@ -111,6 +111,11 @@ function contactBlock(contact: DraftContact): string {
   if (contact.enrichment_hook) {
     parts.push(`personalization hook: ${contact.enrichment_hook}`);
   }
+  if (contact.relationship_context) {
+    // real resolved presence ... the model may open on one of these channels, but
+    // only what's stated here (the no-fabrication line still holds).
+    parts.push(`their public presence (real, do not invent beyond this): ${contact.relationship_context}`);
+  }
   return parts.map((p) => `- ${p}`).join("\n");
 }
 

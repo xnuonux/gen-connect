@@ -165,6 +165,10 @@ export const DraftContactSchema = z.object({
   company_name: z.string().nullable().optional(),
   company_domain: z.string().nullable().optional(),
   enrichment_hook: z.string().nullable().optional(),
+  // a one-line summary of the prospect's resolved public presence (the footprint /
+  // person-graph): real channels + handles + bio. the wedge ... it lets an angle open
+  // on where they actually live online instead of a guess. factual only.
+  relationship_context: z.string().nullable().optional(),
 });
 
 export type DraftContact = z.infer<typeof DraftContactSchema>;

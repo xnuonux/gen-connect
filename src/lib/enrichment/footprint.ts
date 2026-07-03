@@ -34,6 +34,43 @@ export type Footprint = {
   sources: string[];
 };
 
+// summarize a persisted footprint (gc_contacts.enrichment_data.footprint) into a
+// one-line RELATIONSHIP CONTEXT string for the 5-angle drafter. this is what turns the
+// person-graph from inert enrichment into the wedge: the drafter can open on a real
+// channel the prospect actually runs, not a guess. everything here is FACTUAL resolved
+// data (verified handles, their own bio/site), so it never trips the drafter's
+// no-fabrication line. returns null when there's nothing real to say. pure, no io.
+export function summarizeFootprintForDraft(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const fp = raw as Partial<Footprint>;
+  const bits: string[] = [];
+
+  const links = Array.isArray(fp.links) ? fp.links : [];
+  const channels = links
+    .filter(
+      (l): l is FootprintLink =>
+        !!l && typeof l === "object" && typeof l.platform === "string",
+    )
+    .slice(0, 6)
+    .map((l) => {
+      const handle = l.handle ? ` @${l.handle}` : "";
+      const verified = l.verified ? " (verified)" : "";
+      return `${l.platform}${handle}${verified}`;
+    });
+  if (channels.length) bits.push(`public channels: ${channels.join(", ")}`);
+  if (typeof fp.bio === "string" && fp.bio.trim()) {
+    bits.push(`their bio: ${fp.bio.trim().slice(0, 220)}`);
+  }
+  if (typeof fp.website === "string" && fp.website.trim()) {
+    bits.push(`personal site: ${fp.website.trim()}`);
+  }
+  if (typeof fp.location === "string" && fp.location.trim()) {
+    bits.push(`based in: ${fp.location.trim()}`);
+  }
+
+  return bits.length ? bits.join(" · ") : null;
+}
+
 export type FootprintInput = {
   email?: string | null;
   // an explicit github handle short-circuits discovery (e.g. from a prior run).

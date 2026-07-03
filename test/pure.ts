@@ -46,6 +46,7 @@ import { validateGraph } from "../src/lib/sequences/validate.ts";
 import { compileRun } from "../src/lib/sequences/compile.ts";
 import { dueSteps } from "../src/lib/sequences/due.ts";
 import { pickSend } from "../src/lib/sequences/variants.ts";
+import { summarizeFootprintForDraft } from "../src/lib/enrichment/footprint.ts";
 import type { SequenceGraph } from "../src/lib/types/sequence.ts";
 
 let pass = 0;
@@ -483,6 +484,44 @@ ok(
   "pickSend is deterministic for a given seed",
   pickSend(primary, [{ body: "b1", weight: 50 }], 77).body ===
     pickSend(primary, [{ body: "b1", weight: 50 }], 77).body,
+);
+
+// --- summarizeFootprintForDraft: the person-graph -> drafter relationship context ---
+ok("footprint summary null on empty", summarizeFootprintForDraft(null) === null);
+ok("footprint summary null on no signal", summarizeFootprintForDraft({ links: [] }) === null);
+ok(
+  "footprint summary lists verified channels with handles",
+  (() => {
+    const s = summarizeFootprintForDraft({
+      links: [
+        { platform: "github", url: "u", handle: "dom", verified: true, source: "gravatar" },
+        { platform: "x", url: "u2", handle: "domx", verified: false, source: "github" },
+      ],
+      sources: ["gravatar"],
+    });
+    return (
+      typeof s === "string" &&
+      s.includes("github @dom (verified)") &&
+      s.includes("x @domx")
+    );
+  })(),
+);
+ok(
+  "footprint summary carries bio + site + location",
+  (() => {
+    const s = summarizeFootprintForDraft({
+      links: [],
+      bio: "builds outreach tools",
+      website: "dom.dev",
+      location: "chicago",
+    });
+    return (
+      typeof s === "string" &&
+      s.includes("their bio: builds outreach tools") &&
+      s.includes("personal site: dom.dev") &&
+      s.includes("based in: chicago")
+    );
+  })(),
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

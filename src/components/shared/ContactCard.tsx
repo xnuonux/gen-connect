@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { formatDistanceToNowStrict } from "date-fns";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Radar } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { FlameScore } from "@/components/shared/FlameScore";
 import type { Contact } from "@/lib/types/contact";
@@ -77,11 +77,22 @@ export function ContactCard({
 
       <div className="mt-3 flex items-center justify-between">
         <FlameScore score={contact.warmthScore} />
-        {stamp ? (
-          <span className="font-mono text-[10px] text-lunari-neutral-500">
-            {stamp}
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {contact.presenceCount > 0 ? (
+            <span
+              className="flex items-center gap-1 font-mono text-[10px] text-lunari-neutral-400"
+              title={`${contact.presenceCount} public channels found`}
+            >
+              <Radar className="h-3 w-3 stroke-[1.25]" />
+              {contact.presenceCount}
+            </span>
+          ) : null}
+          {stamp ? (
+            <span className="font-mono text-[10px] text-lunari-neutral-500">
+              {stamp}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {selected && draftHref && !dragging ? (

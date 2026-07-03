@@ -42,6 +42,10 @@ export type Contact = {
   // (the signal hook), shown on signal-sourced cards.
   source: string | null;
   provenance: string | null;
+  // how many public channels the footprint resolved ... surfaced as a small presence
+  // chip on the card so relationship intelligence is visible at a glance, not buried
+  // behind a per-contact click. 0 when the footprint hasn't been resolved.
+  presenceCount: number;
   lastActionAt: string | null;
   createdAt: string;
 };
