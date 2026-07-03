@@ -1,21 +1,13 @@
-import Link from "next/link";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ComingSoon } from "@/components/shared/ComingSoon";
 import { RunDueButton } from "./RunDueButton";
+import { CampaignsView } from "./CampaignsView";
 import { listSequences } from "@/lib/supabase/sequences";
-import { cn } from "@/lib/utils/cn";
-import type { SequenceStatus } from "@/lib/types/sequence";
 
 // campaigns reads the same gc_sequences the editor writes ... a sequence IS a
-// campaign once contacts enroll. this is the at-a-glance ledger: who is running,
-// how many are in, how many replied. clicking a row opens it on the canvas.
-
-const STATUS_STYLE: Record<SequenceStatus, string> = {
-  draft: "bg-lunari-surface-elevated text-lunari-neutral-400",
-  active: "bg-gen-accent-soft text-gen-accent",
-  paused: "bg-lunari-surface-elevated text-lunari-gold",
-  archived: "bg-lunari-surface-elevated text-lunari-neutral-500",
-};
+// campaign once contacts enroll. the ledger on the left, a live detail pane on the
+// right (the compiled journey, per-send variant + spintax breakdown, the counts, a
+// per-campaign run). the tab is a real console now, not a list that dead-ends.
 
 export default async function CampaignsPage() {
   const sequences = await listSequences();
@@ -38,52 +30,7 @@ export default async function CampaignsPage() {
           cta={{ href: "/sequences", label: "open the sequence editor" }}
         />
       ) : (
-        <div className="surface-raised overflow-hidden rounded-lg border border-lunari-surface-elevated bg-lunari-surface">
-          <div className="grid grid-cols-12 gap-2 border-b border-lunari-surface-elevated px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] text-lunari-neutral-500">
-            <span className="col-span-5">campaign</span>
-            <span className="col-span-2">status</span>
-            <span className="col-span-2 text-right">steps</span>
-            <span className="col-span-1 text-right">in</span>
-            <span className="col-span-2 text-right">replies</span>
-          </div>
-          <ul>
-            {sequences.map((s, i) => (
-              <li
-                key={s.id}
-                className="reveal-up border-b border-lunari-surface-elevated last:border-b-0"
-                style={{ animationDelay: `${Math.min(i, 6) * 45}ms` }}
-              >
-                <Link
-                  href={{ pathname: "/sequences", query: { id: s.id } }}
-                  className="planetarium grid grid-cols-12 items-center gap-2 px-4 py-3 hover:bg-lunari-surface-elevated"
-                >
-                  <span className="col-span-5 truncate text-sm text-lunari-cream">
-                    {s.name}
-                  </span>
-                  <span className="col-span-2">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em]",
-                        STATUS_STYLE[s.status],
-                      )}
-                    >
-                      {s.status}
-                    </span>
-                  </span>
-                  <span className="col-span-2 text-right font-mono text-xs tabular-nums text-lunari-neutral-400">
-                    {s.nodeCount}
-                  </span>
-                  <span className="col-span-1 text-right font-mono text-xs tabular-nums text-lunari-neutral-400">
-                    {s.enrolledCount}
-                  </span>
-                  <span className="col-span-2 text-right font-mono text-xs tabular-nums text-lunari-cream">
-                    {s.replyCount}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <CampaignsView initial={sequences} />
       )}
     </div>
   );

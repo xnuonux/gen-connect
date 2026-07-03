@@ -12,7 +12,7 @@ import { tickDueSequencesAction } from "@/app/actions/sequences";
 // without waiting on the deferred autonomous cron ... you press it, gen runs the tick,
 // the replies thread into the unibox. the button reports exactly what happened so a
 // no-op tick ("nothing due yet") never reads as a silent failure.
-export function RunDueButton() {
+export function RunDueButton({ sequenceId }: { sequenceId?: string } = {}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -20,7 +20,9 @@ export function RunDueButton() {
     if (busy) return;
     setBusy(true);
     try {
-      const r = await tickDueSequencesAction({});
+      // scoped to one campaign when a sequenceId is given (the detail pane), else the
+      // whole workspace (the page header).
+      const r = await tickDueSequencesAction(sequenceId ? { sequenceId } : {});
       if (!r.ok) {
         toast.error(r.error);
         return;
