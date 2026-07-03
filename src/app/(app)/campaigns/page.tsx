@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ComingSoon } from "@/components/shared/ComingSoon";
+import { RunDueButton } from "./RunDueButton";
 import { listSequences } from "@/lib/supabase/sequences";
 import { cn } from "@/lib/utils/cn";
 import type { SequenceStatus } from "@/lib/types/sequence";
@@ -18,13 +19,17 @@ const STATUS_STYLE: Record<SequenceStatus, string> = {
 
 export default async function CampaignsPage() {
   const sequences = await listSequences();
+  const hasActive = sequences.some((s) => s.status === "active");
 
   return (
     <div className="space-y-6 px-8 py-6">
-      <PageHeader
-        title="campaigns"
-        subtitle="sequences as visual instruments ... enrolled counts, replies, status, step by step."
-      />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader
+          title="campaigns"
+          subtitle="sequences as visual instruments ... enrolled counts, replies, status, step by step."
+        />
+        {hasActive ? <RunDueButton /> : null}
+      </div>
 
       {sequences.length === 0 ? (
         <ComingSoon

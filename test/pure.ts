@@ -43,6 +43,8 @@ import { flameScore } from "../src/lib/signals/flame.ts";
 import { evaluateTrigger } from "../src/lib/triggers/evaluate.ts";
 import type { SignalHit, TriggerContact } from "../src/lib/types/signal.ts";
 import { validateGraph } from "../src/lib/sequences/validate.ts";
+import { compileRun } from "../src/lib/sequences/compile.ts";
+import { dueSteps } from "../src/lib/sequences/due.ts";
 import type { SequenceGraph } from "../src/lib/types/sequence.ts";
 
 let pass = 0;
@@ -388,6 +390,63 @@ ok(
   validateGraph(
     graph([gnode("s", "start"), gnode("m", "send", okSend)], [gedge("e1", "s", "m")]),
   ).length > 0,
+);
+
+// --- dueSteps: the sequence executor's timing decision ---
+// a real compiled run: enrolled -> send now -> wait 2 days -> send -> end.
+const DAY = 86400e3;
+const TWO_D = 2 * DAY;
+const runSteps = compileRun(
+  graph(
+    [
+      gnode("start", "start"),
+      gnode("s1", "send", okSend),
+      gnode("w1", "wait", { amount: 2, unit: "days" }),
+      gnode("s2", "send", { channel: "email", subject: "bump", body: "still up?" }),
+      gnode("e1", "end", { action: "completed" }),
+    ],
+    [
+      gedge("g1", "start", "s1"),
+      gedge("g2", "s1", "w1"),
+      gedge("g3", "w1", "s2"),
+      gedge("g4", "s2", "e1"),
+    ],
+  ),
+).steps;
+ok("dueSteps compiled run reaches the end", runSteps.some((s) => s.kind === "end"));
+ok(
+  "dueSteps at enrollment fires only the immediate send",
+  (() => {
+    const due = dueSteps(runSteps, "start", 0);
+    return due.length === 1 && due[0]?.nodeId === "s1";
+  })(),
+);
+ok(
+  "dueSteps holds the +2d send until the wait elapses",
+  dueSteps(runSteps, "s1", DAY).length === 0,
+);
+ok(
+  "dueSteps releases the wait + second send once 2d passes",
+  (() => {
+    const due = dueSteps(runSteps, "s1", TWO_D);
+    return due.length === 3 && due[due.length - 1]?.kind === "end";
+  })(),
+);
+ok(
+  "dueSteps never re-fires a passed send (cursor moves forward)",
+  (() => {
+    const due = dueSteps(runSteps, "s2", TWO_D);
+    return due.length === 1 && due[0]?.kind === "end";
+  })(),
+);
+ok("dueSteps at the end yields nothing", dueSteps(runSteps, "e1", TWO_D * 10).length === 0);
+ok(
+  "dueSteps null cursor is treated as the start",
+  dueSteps(runSteps, null, 0).length === 1,
+);
+ok(
+  "dueSteps unknown cursor falls back to the start, not a crash",
+  dueSteps(runSteps, "ghost", TWO_D).length === 4,
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

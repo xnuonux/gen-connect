@@ -13,6 +13,10 @@ import {
 import { validateGraph } from "@/lib/sequences/validate";
 import { templateById } from "@/lib/sequences/templates";
 import {
+  advanceDueEnrollments,
+  type EnrollmentTickResult,
+} from "@/lib/sequences/runner";
+import {
   NODE_KINDS,
   type SequenceGraph,
   type SequenceRecord,
@@ -179,5 +183,41 @@ export async function enrollContactsAction(raw: unknown): Promise<EnrollResult> 
   } catch (err) {
     console.error("[sequences] enroll failed", err);
     return { ok: false, error: "couldn't enroll those ... try again." };
+  }
+}
+
+const TickInput = z.object({
+  sequenceId: z.string().uuid().optional(),
+  contactId: z.string().uuid().optional(),
+});
+
+export type TickResult =
+  | { ok: true; result: EnrollmentTickResult }
+  | { ok: false; error: string };
+
+// the executor tick ... walks the signed-in user's active enrollments and fires every
+// send that has come due, test-mode-safe (guardedSend redirects unless GEN_SEND_MODE
+// is live). this is the in-app driver behind the campaigns "run due sends" control;
+// the autonomous cross-user cron is the same runner on a schedule (deferred go/no-go).
+export async function tickDueSequencesAction(
+  raw: unknown = {},
+): Promise<TickResult> {
+  const user = await requireUser();
+  if (!user) return { ok: false, error: "sign in to run a sequence ..." };
+
+  const parsed = TickInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "that tick didn't look right ..." };
+  }
+
+  try {
+    const result = await advanceDueEnrollments(parsed.data);
+    revalidatePath("/campaigns");
+    revalidatePath("/pipeline");
+    revalidatePath("/unibox");
+    return { ok: true, result };
+  } catch (err) {
+    console.error("[sequences] tick failed", err);
+    return { ok: false, error: "the run didn't land ... give it another shot." };
   }
 }
