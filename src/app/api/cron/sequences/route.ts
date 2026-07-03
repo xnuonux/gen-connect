@@ -56,13 +56,12 @@ async function tick(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // distinct users with at least one active enrollment (service-role sees all rows;
-  // the per-user runner then scopes every query to that user_id).
-  const { data, error } = await admin
-    .from("gc_sequence_enrollments")
-    .select("user_id")
-    .eq("status", "active")
-    .limit(5000);
+  // distinct users with at least one active enrollment. this MUST be a distinct-user
+  // query (the gc_active_enrollment_users rpc), not a paged row select ... paging
+  // gc_sequence_enrollments rows hits postgrest's max-rows cap, so one high-volume
+  // tenant's rows fill the window and every other tenant is silently never ticked.
+  // the rpc is execute-restricted to service_role (v0_1_18) and returns only ids.
+  const { data, error } = await admin.rpc("gc_active_enrollment_users");
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
