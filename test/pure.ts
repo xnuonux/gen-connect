@@ -45,6 +45,7 @@ import type { SignalHit, TriggerContact } from "../src/lib/types/signal.ts";
 import { validateGraph } from "../src/lib/sequences/validate.ts";
 import { compileRun } from "../src/lib/sequences/compile.ts";
 import { dueSteps } from "../src/lib/sequences/due.ts";
+import { pickSend } from "../src/lib/sequences/variants.ts";
 import type { SequenceGraph } from "../src/lib/types/sequence.ts";
 
 let pass = 0;
@@ -447,6 +448,41 @@ ok(
 ok(
   "dueSteps unknown cursor falls back to the start, not a crash",
   dueSteps(runSteps, "ghost", TWO_D).length === 4,
+);
+
+// --- pickSend: a/b variant selection at send time ---
+const primary = { subject: "s0", body: "b0" };
+ok(
+  "pickSend no variants returns the primary",
+  pickSend(primary, undefined, 42).body === "b0",
+);
+ok(
+  "pickSend ignores 0-weight/empty variants (primary wins)",
+  pickSend(primary, [{ body: "", weight: 50 }, { body: "bx", weight: 0 }], 10).body === "b0",
+);
+ok(
+  "pickSend a 100% variant always wins",
+  pickSend(primary, [{ body: "b1", weight: 100 }], 0).body === "b1" &&
+    pickSend(primary, [{ body: "b1", weight: 100 }], 99).body === "b1",
+);
+ok(
+  "pickSend 60/40 split lands by the seed roll",
+  // primaryWeight = 100-40 = 60; roll<60 -> primary, roll>=60 -> variant
+  pickSend(primary, [{ body: "b1", weight: 40 }], 30).body === "b0" &&
+    pickSend(primary, [{ body: "b1", weight: 40 }], 70).body === "b1",
+);
+ok(
+  "pickSend variant without its own subject inherits the primary subject",
+  pickSend(primary, [{ body: "b1", weight: 100 }], 5).subject === "s0",
+);
+ok(
+  "pickSend variant with its own subject uses it",
+  pickSend(primary, [{ subject: "s1", body: "b1", weight: 100 }], 5).subject === "s1",
+);
+ok(
+  "pickSend is deterministic for a given seed",
+  pickSend(primary, [{ body: "b1", weight: 50 }], 77).body ===
+    pickSend(primary, [{ body: "b1", weight: 50 }], 77).body,
 );
 
 console.log(`\n${pass} passed, ${fail} failed`);

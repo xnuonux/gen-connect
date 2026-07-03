@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { compileRun } from "@/lib/sequences/compile";
 import { dueSteps } from "@/lib/sequences/due";
+import { pickSend } from "@/lib/sequences/variants";
 import { renderSample } from "@/lib/sequences/spintax";
 import { guardedSend } from "@/lib/email/guarded-send";
 import { IS_LIVE } from "@/lib/email/send";
@@ -272,16 +273,19 @@ export async function advanceDueEnrollments(
           base.failed += 1;
           break;
         }
-        const subject = renderSample(
-          typeof data.subject === "string" ? data.subject : "",
+        // a/b: pick the arm this contact lands in (deterministic off its seed) before
+        // rendering, so an authored + validated split actually fires instead of always
+        // shipping the primary body. no variants => pickSend returns the primary.
+        const chosen = pickSend(
+          {
+            subject: typeof data.subject === "string" ? data.subject : "",
+            body: typeof data.body === "string" ? data.body : "",
+          },
+          data.variants,
           seed,
-          slots,
         );
-        const body = renderSample(
-          typeof data.body === "string" ? data.body : "",
-          seed,
-          slots,
-        );
+        const subject = renderSample(chosen.subject, seed, slots);
+        const body = renderSample(chosen.body, seed, slots);
         if (!subject && !body) {
           base.skipped += 1;
           continue;

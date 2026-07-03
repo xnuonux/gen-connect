@@ -69,8 +69,10 @@ export default async function AppLayout({
                 in opportunities since launch
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-3">
-              <div className="hidden items-center gap-2 sm:flex">
+            <div className="ml-auto flex min-w-0 items-center gap-3">
+              {/* chips show from lg up: the fixed 240px rail leaves too little room for
+                  three chips + the palette launcher below lg, where they'd clip. */}
+              <div className="hidden items-center gap-2 lg:flex">
                 <StatChip label="sends today" value={stats.sendsToday} delayMs={40} />
                 <StatChip label="replies" value={stats.replies} delayMs={80} />
                 <StatChip label="booked" value={stats.booked} accent delayMs={120} />
