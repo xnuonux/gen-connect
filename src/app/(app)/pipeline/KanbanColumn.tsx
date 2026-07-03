@@ -13,6 +13,7 @@ type KanbanColumnProps = {
   index: number;
   contacts: Contact[];
   selectedId: string | null;
+  arrivedIds: Set<string>;
   onSelect: (id: string) => void;
 };
 
@@ -24,6 +25,7 @@ export function KanbanColumn({
   index,
   contacts,
   selectedId,
+  arrivedIds,
   onSelect,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
@@ -54,6 +56,7 @@ export function KanbanColumn({
               key={contact.id}
               contact={contact}
               selected={contact.id === selectedId}
+              justArrived={arrivedIds.has(contact.id)}
               onSelect={onSelect}
             />
           ))

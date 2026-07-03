@@ -75,6 +75,31 @@ export function PipelineKanban({
 
   const board = useMemo(() => groupByStage(contacts), [contacts]);
 
+  // arrival choreography: ids present now that weren't in the last committed set get
+  // a one-shot forest-green ring (gen just placed them via realtime). computed with
+  // react's documented "adjust state during render" pattern ... NOT a ref read in
+  // render and NOT set-state-in-effect, both of which the react compiler forbids
+  // here. seeded from the initial contacts, so the first paint shimmers nothing.
+  const idKey = useMemo(() => contacts.map((c) => c.id).join("|"), [contacts]);
+  const [snap, setSnap] = useState<{
+    key: string;
+    ids: Set<string>;
+    arrived: Set<string>;
+  }>(() => ({
+    key: idKey,
+    ids: new Set(contacts.map((c) => c.id)),
+    arrived: new Set(),
+  }));
+  if (idKey !== snap.key) {
+    const cur = new Set(contacts.map((c) => c.id));
+    const arrived = new Set<string>();
+    if (snap.ids.size > 0) {
+      for (const id of cur) if (!snap.ids.has(id)) arrived.add(id);
+    }
+    setSnap({ key: idKey, ids: cur, arrived });
+  }
+  const arrivedIds = snap.arrived;
+
   // the optimistic move. the card jumps on drop, then we reconcile against the
   // database ... if the write fails, the card snaps back and a toast fires.
   const move = useMutation({
@@ -166,6 +191,7 @@ export function PipelineKanban({
               index={i}
               contacts={board[stage]}
               selectedId={selectedId}
+              arrivedIds={arrivedIds}
               onSelect={setSelectedId}
             />
           ))}

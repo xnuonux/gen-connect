@@ -186,13 +186,30 @@
   animation: gen-verify-pulse 1100ms var(--motion-easing) 1;
 }
 
+/* a card gen just placed on the board via realtime ... a one-shot forest-green ring +
+   soft wash so you SEE the operator fill the surface, not just find it longer. */
+@keyframes gen-arrive {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--gen-accent) 70%, transparent);
+    background-color: color-mix(in srgb, var(--gen-accent) 16%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 14px color-mix(in srgb, var(--gen-accent) 0%, transparent);
+    background-color: color-mix(in srgb, var(--gen-accent) 0%, transparent);
+  }
+}
+.gen-arrive {
+  animation: gen-arrive 1400ms var(--motion-easing) 1;
+}
+
 /* reduced motion: skip the entrance + celebration entirely, never leave an
    element stranded at opacity 0 during a zeroed-duration delay. */
 @media (prefers-reduced-motion: reduce) {
   .reveal-up,
   .gen-win-ring,
   .gen-win-quote,
-  .gen-verify-pulse {
+  .gen-verify-pulse,
+  .gen-arrive {
     animation: none;
   }
 }

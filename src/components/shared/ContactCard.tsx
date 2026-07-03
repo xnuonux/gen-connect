@@ -25,6 +25,9 @@ type ContactCardProps = {
   dragging?: boolean;
   // when set, a selected card reveals a "draft outreach" link to the studio.
   draftHref?: string;
+  // one-shot forest-green ring when gen just placed this card on the board via
+  // realtime ... you watch the operator fill the surface, not just find it longer.
+  justArrived?: boolean;
 } & React.ComponentPropsWithRef<"div">;
 
 // the presentational contact card. no drag logic lives here ... KanbanCard
@@ -34,6 +37,7 @@ export function ContactCard({
   selected = false,
   dragging = false,
   draftHref,
+  justArrived = false,
   className,
   ...props
 }: ContactCardProps) {
@@ -48,6 +52,7 @@ export function ContactCard({
         "border-lunari-surface-elevated hover:-translate-y-px hover:bg-lunari-surface-elevated",
         selected && "border-gen-accent ring-1 ring-gen-accent",
         dragging && "rotate-[1deg] shadow-xl shadow-lunari-black/70",
+        justArrived && "gen-arrive",
         className,
       )}
       {...props}

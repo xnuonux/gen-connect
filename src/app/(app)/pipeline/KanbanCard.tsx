@@ -8,12 +8,18 @@ import type { Contact } from "@/lib/types/contact";
 type KanbanCardProps = {
   contact: Contact;
   selected: boolean;
+  justArrived?: boolean;
   onSelect: (id: string) => void;
 };
 
 // one draggable contact on the board. the drag wiring lives here ... the look
 // is ContactCard, reused untouched by the drag overlay and the side panel.
-export function KanbanCard({ contact, selected, onSelect }: KanbanCardProps) {
+export function KanbanCard({
+  contact,
+  selected,
+  justArrived = false,
+  onSelect,
+}: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: contact.id,
   });
@@ -23,6 +29,7 @@ export function KanbanCard({ contact, selected, onSelect }: KanbanCardProps) {
       ref={setNodeRef}
       contact={contact}
       selected={selected}
+      justArrived={justArrived}
       draftHref={`/draft/${contact.id}`}
       onClick={() => onSelect(contact.id)}
       className={cn(
