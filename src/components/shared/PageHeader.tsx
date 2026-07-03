@@ -10,7 +10,7 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="reveal-up flex items-start justify-between gap-4">
       <div>
         {/* cinzel carries the page title ... the signature family finally gets an
             editorial moment beyond the wordmark + win quote (the visual-hierarchy lift). */}

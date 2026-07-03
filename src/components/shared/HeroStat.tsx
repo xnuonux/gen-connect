@@ -46,7 +46,7 @@ export function HeroStat({ cents }: { cents: number }) {
   }, [target]);
 
   return (
-    <span className="text-glow-gold font-mono text-lg font-semibold tabular-nums text-lunari-gold">
+    <span className="text-glow-gold font-mono text-[28px] font-semibold leading-none tabular-nums text-lunari-gold">
       ${display.toLocaleString("en-US")}
     </span>
   );

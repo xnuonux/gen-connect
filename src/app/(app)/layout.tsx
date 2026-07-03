@@ -58,22 +58,24 @@ export default async function AppLayout({
 
       {/* main */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* top bar */}
-        <header className="h-12 border-b border-lunari-surface-elevated bg-lunari-surface/60 backdrop-blur flex items-center px-6">
-          <div className="flex items-baseline gap-2.5">
-            <HeroStat cents={stats.opportunitiesCents} />
-            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
-              in opportunities since launch
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-4">
-            <CommandPalette />
-            <div className="hidden items-center gap-4 text-xs text-lunari-neutral-400 font-mono md:flex">
-              <span>sends today · {stats.sendsToday}</span>
-              <span className="text-lunari-surface-elevated">|</span>
-              <span>replies · {stats.replies}</span>
-              <span className="text-lunari-surface-elevated">|</span>
-              <span className="text-gen-accent">booked · {stats.booked}</span>
+        {/* top bar ... the hero band. the dollars-not-fuel stat is the focal moment
+            ("the tool prints money"), not a label crammed in a toolbar. the ticker
+            becomes mono-labeled stat chips that stagger in, and survives to sm (not md). */}
+        <header className="border-b border-lunari-surface-elevated bg-lunari-surface/60 px-6 py-3.5 backdrop-blur">
+          <div className="flex items-center gap-6">
+            <div className="reveal-up min-w-0">
+              <HeroStat cents={stats.opportunitiesCents} />
+              <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-500">
+                in opportunities since launch
+              </div>
+            </div>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="hidden items-center gap-2 sm:flex">
+                <StatChip label="sends today" value={stats.sendsToday} delayMs={40} />
+                <StatChip label="replies" value={stats.replies} delayMs={80} />
+                <StatChip label="booked" value={stats.booked} accent delayMs={120} />
+              </div>
+              <CommandPalette />
             </div>
           </div>
         </header>
@@ -81,6 +83,37 @@ export default async function AppLayout({
         <main className="flex-1 overflow-auto">
           <Providers>{children}</Providers>
         </main>
+      </div>
+    </div>
+  );
+}
+
+// a mono-labeled momentum chip for the hero band ... the ticker, but designed. reveals
+// with a staggered delay so the band has follow-through instead of snapping in flat.
+// the booked chip carries the one forest-green accent (gold stays reserved for the $).
+function StatChip({
+  label,
+  value,
+  accent = false,
+  delayMs,
+}: {
+  label: string;
+  value: number;
+  accent?: boolean;
+  delayMs: number;
+}) {
+  return (
+    <div
+      className="reveal-up surface-raised rounded-md border border-lunari-surface-elevated px-2.5 py-1"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
+      <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-lunari-neutral-500">
+        {label}
+      </div>
+      <div
+        className={`font-mono text-sm tabular-nums ${accent ? "text-gen-accent" : "text-lunari-cream"}`}
+      >
+        {value.toLocaleString("en-US")}
       </div>
     </div>
   );
