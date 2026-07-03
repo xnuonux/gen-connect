@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { compileRun } from "@/lib/sequences/compile";
 import { dueSteps } from "@/lib/sequences/due";
@@ -79,17 +80,19 @@ function slotValues(c: ContactLite): Record<string, string> {
   return v;
 }
 
-type Db = Awaited<ReturnType<typeof createClient>>;
+type Db = SupabaseClient;
 
 // claim a step by compare-and-set: move current_node_id from `from` to `to` ONLY if
-// the row still sits at `from`. returns true iff this call won the move. this is the
-// concurrency guard that makes the executor at-most-once ... two overlapping ticks
-// (two tabs, or the cron overlapping a manual "run due sends") both read the same
-// cursor, but only one wins the cas and gets to send; the loser sees false and bails.
-// a db error returns false (treated as a lost claim), so a flaky write never advances
-// the cursor past an unsent step.
+// the row still sits at `from` (and belongs to `userId`). returns true iff this call
+// won the move. this is the concurrency guard that makes the executor at-most-once ...
+// two overlapping ticks (two tabs, or the cron overlapping a manual "run due sends")
+// both read the same cursor, but only one wins the cas and gets to send; the loser
+// sees false and bails. a db error returns false (treated as a lost claim), so a flaky
+// write never advances the cursor past an unsent step. the user_id filter is what
+// keeps the cas safe under the service-role client (which bypasses rls).
 async function casAdvance(
   db: Db,
+  userId: string,
   id: string,
   from: string | null,
   to: string | null,
@@ -97,7 +100,8 @@ async function casAdvance(
   const base = db
     .from("gc_sequence_enrollments")
     .update({ current_node_id: to })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("user_id", userId);
   const guarded =
     from === null
       ? base.is("current_node_id", null)
@@ -108,11 +112,23 @@ async function casAdvance(
 }
 
 export async function advanceDueEnrollments(
-  opts: { sequenceId?: string; contactId?: string; nowMs?: number } = {},
+  opts: {
+    sequenceId?: string;
+    contactId?: string;
+    nowMs?: number;
+    // service mode: the autonomous cron passes an injected service-role client AND
+    // the user to run for. rls is then bypassed, so EVERY query below is scoped by
+    // this userId explicitly. omit both and it runs session/rls-scoped as before.
+    db?: Db;
+    userId?: string;
+  } = {},
 ): Promise<EnrollmentTickResult> {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const userId = auth.user?.id;
+  const supabase = opts.db ?? (await createClient());
+  let userId = opts.userId ?? null;
+  if (!userId) {
+    const { data: auth } = await supabase.auth.getUser();
+    userId = auth.user?.id ?? null;
+  }
   const mode: "test" | "live" = IS_LIVE ? "live" : "test";
   const base: EnrollmentTickResult = {
     scanned: 0,
@@ -127,11 +143,13 @@ export async function advanceDueEnrollments(
 
   const now = opts.nowMs ?? Date.now();
 
-  // 1. active enrollments (rls-scoped), oldest first, optionally scoped to one
-  //    sequence or one contact for a targeted tick.
+  // 1. active enrollments (scoped by user_id ... redundant under rls, REQUIRED under
+  //    the service-role client), oldest first, optionally narrowed to one sequence or
+  //    one contact for a targeted tick.
   let q = supabase
     .from("gc_sequence_enrollments")
     .select("id, sequence_id, contact_id, version, current_node_id, created_at")
+    .eq("user_id", userId)
     .eq("status", "active")
     .order("created_at", { ascending: true })
     .limit(MAX_ENROLLMENTS);
@@ -151,6 +169,7 @@ export async function advanceDueEnrollments(
   const { data: seqRows } = await supabase
     .from("gc_sequences")
     .select("id, status, graph")
+    .eq("user_id", userId)
     .in("id", seqIds);
   const seqById = new Map<
     string,
@@ -169,6 +188,7 @@ export async function advanceDueEnrollments(
   const { data: contactRows } = await supabase
     .from("gc_contacts")
     .select("id, email, name, title, enrichment_data")
+    .eq("user_id", userId)
     .in("id", contactIds);
   const contactById = new Map<string, ContactLite>();
   for (const c of (contactRows ?? []) as ContactLite[]) contactById.set(c.id, c);
@@ -187,6 +207,7 @@ export async function advanceDueEnrollments(
     const { data: snap } = await supabase
       .from("gc_sequence_versions")
       .select("graph")
+      .eq("user_id", userId)
       .eq("sequence_id", seqId)
       .eq("version", version)
       .maybeSingle();
@@ -231,7 +252,7 @@ export async function advanceDueEnrollments(
       // worker owns this enrollment ... bail so a send is never double-fired. claiming
       // before the send is what makes delivery at-most-once: nothing after the claim
       // retries, and for cold email a missed follow-up beats a duplicate to a prospect.
-      const claimed = await casAdvance(supabase, e.id, cursor, step.nodeId);
+      const claimed = await casAdvance(supabase, userId, e.id, cursor, step.nodeId);
       if (!claimed) break; // raced ... someone else has this enrollment this tick
       cursor = step.nodeId;
       moved = true;
@@ -275,6 +296,7 @@ export async function advanceDueEnrollments(
             subject,
             body,
             kind: "cold",
+            db: opts.db,
           });
         } catch {
           // the step is already claimed, so we do NOT retry ... at-most-once. the
@@ -313,7 +335,8 @@ export async function advanceDueEnrollments(
       await supabase
         .from("gc_sequence_enrollments")
         .update({ status })
-        .eq("id", e.id);
+        .eq("id", e.id)
+        .eq("user_id", userId);
       if (status === "completed") base.completed += 1;
     }
   }

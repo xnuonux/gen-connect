@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
 export type UniboxContact = {
@@ -210,10 +211,15 @@ export async function logOutboundEmail(args: {
   messageId?: string | null; // our rfc Message-ID (threadId anchor)
   toEmail?: string | null; // the INTENDED recipient (the lead), not the test inbox
   threadId?: string | null; // append here when known (a reply); else find/create
+  userId?: string | null; // explicit owner (the autonomous cron has no session)
+  db?: SupabaseClient; // injected service-role client (cron); else the session client
 }): Promise<void> {
-  const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const userId = auth.user?.id;
+  const supabase = args.db ?? (await createClient());
+  let userId = args.userId ?? null;
+  if (!userId) {
+    const { data: auth } = await supabase.auth.getUser();
+    userId = auth.user?.id ?? null;
+  }
   if (!userId) return;
 
   let threadId: string | null = args.threadId ?? null;
@@ -221,6 +227,7 @@ export async function logOutboundEmail(args: {
     const { data: existing } = await supabase
       .from("gc_unibox_threads")
       .select("id")
+      .eq("user_id", userId)
       .eq("contact_id", args.contactId)
       .eq("channel", "email")
       .limit(1)
@@ -258,7 +265,8 @@ export async function logOutboundEmail(args: {
   await supabase
     .from("gc_unibox_threads")
     .update({ last_message_at: now })
-    .eq("id", threadId);
+    .eq("id", threadId)
+    .eq("user_id", userId);
 
   // the 'sent' ledger row: the join key for inbound bounce/complaint resolution
   // and the denominator for the deliverability rates.

@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeDomain } from "@/lib/deliverability/dns";
 import type { DnsCheck } from "@/lib/deliverability/dns-verify";
@@ -77,16 +78,26 @@ export async function addSendingDomain(
 // is this domain verified (spf + dkim + mx) for the current user? the live-send
 // gate reads this so a real send never leaves an unauthenticated domain. rls
 // scopes the read to the user.
-export async function isDomainVerified(rawDomain: string): Promise<boolean> {
+export async function isDomainVerified(
+  rawDomain: string,
+  db?: SupabaseClient,
+  userId?: string,
+): Promise<boolean> {
   const domain = normalizeDomain(rawDomain) ?? rawDomain.trim().toLowerCase();
-  const supabase = await createClient();
-  const { data } = await supabase
+  const supabase = db ?? (await createClient());
+  // scope by user_id when known. under the session client rls already restricts this
+  // to the caller's rows, so the filter is a redundant no-op; under the injected
+  // service-role client (the cron) rls is BYPASSED, so without this filter the gate
+  // would match ANY user's verified row for a shared send-domain and wave through a
+  // live send off a domain THIS user never verified. the filter keeps the service
+  // path identical to the per-user session gate.
+  let q = supabase
     .from("gc_sending_domains")
     .select("id")
     .eq("domain", domain)
-    .eq("status", "verified")
-    .limit(1)
-    .maybeSingle();
+    .eq("status", "verified");
+  if (userId) q = q.eq("user_id", userId);
+  const { data } = await q.limit(1).maybeSingle();
   return !!data;
 }
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import {
   sendDraftEmail,
@@ -24,11 +25,13 @@ export type GuardedSendResult = SendResult & {
 async function resolveThreadId(
   userId: string,
   contactId: string,
+  db?: SupabaseClient,
 ): Promise<string | null> {
-  const supabase = await createClient();
+  const supabase = db ?? (await createClient());
   const { data: existing } = await supabase
     .from("gc_unibox_threads")
     .select("id")
+    .eq("user_id", userId)
     .eq("contact_id", contactId)
     .eq("channel", "email")
     .limit(1)
@@ -63,27 +66,33 @@ export async function guardedSend(args: {
   body: string;
   kind: "cold" | "reply";
   threadId?: string | null;
+  // an injected service-role client (the autonomous cron, which has no session).
+  // every gate here is scoped by userId / contactId, so it stays correct without
+  // rls. omit it and the send runs through the session client exactly as before.
+  db?: SupabaseClient;
 }): Promise<GuardedSendResult> {
   // gather the gate inputs (only what each gate needs), then let the pure
   // guardDecision enforce the order + the verdict. this keeps the io here and
   // the ordering logic ... the safety-critical part ... in one tested function.
-  const suppressed = await isSuppressed(args.userId, args.to);
+  const suppressed = await isSuppressed(args.userId, args.to, args.db);
 
   const fromDomain = sendFromDomain();
   // the live-send domain gate makes the sending-domains wizard load-bearing, not
   // informational. only read the verification state when a real send is at stake.
   let domainVerified = true;
-  if (IS_LIVE) domainVerified = await isDomainVerified(fromDomain);
+  if (IS_LIVE)
+    domainVerified = await isDomainVerified(fromDomain, args.db, args.userId);
 
   // jurisdiction (gdpr/eprivacy) only applies to a cold first-touch; replies pass.
   let country: string | null = null;
   let consent: boolean | null = null;
   if (args.kind === "cold") {
-    const supabase = await createClient();
+    const supabase = args.db ?? (await createClient());
     const { data: c } = await supabase
       .from("gc_contacts")
       .select("country, jurisdiction_consent")
       .eq("id", args.contactId)
+      .eq("user_id", args.userId)
       .maybeSingle();
     country = (c?.country as string | null) ?? null;
     consent = (c?.jurisdiction_consent as boolean | null) ?? null;
@@ -111,7 +120,8 @@ export async function guardedSend(args: {
   }
 
   const threadId =
-    args.threadId ?? (await resolveThreadId(args.userId, args.contactId));
+    args.threadId ??
+    (await resolveThreadId(args.userId, args.contactId, args.db));
 
   // 2 + 4. headers: unsubscribe (always) + a threadId-anchored Message-ID.
   const headers: Record<string, string> = {
@@ -149,6 +159,8 @@ export async function guardedSend(args: {
       externalId: result.id ?? null,
       messageId: messageId ?? null,
       toEmail: args.to,
+      userId: args.userId,
+      db: args.db,
     });
   }
 
