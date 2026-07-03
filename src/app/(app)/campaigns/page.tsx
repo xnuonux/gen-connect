@@ -47,8 +47,12 @@ export default async function CampaignsPage() {
             <span className="col-span-2 text-right">replies</span>
           </div>
           <ul>
-            {sequences.map((s) => (
-              <li key={s.id} className="border-b border-lunari-surface-elevated last:border-b-0">
+            {sequences.map((s, i) => (
+              <li
+                key={s.id}
+                className="reveal-up border-b border-lunari-surface-elevated last:border-b-0"
+                style={{ animationDelay: `${Math.min(i, 6) * 45}ms` }}
+              >
                 <Link
                   href={{ pathname: "/sequences", query: { id: s.id } }}
                   className="planetarium grid grid-cols-12 items-center gap-2 px-4 py-3 hover:bg-lunari-surface-elevated"

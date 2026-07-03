@@ -89,9 +89,20 @@ function MonoLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function VolumeCard({ label, value }: { label: string; value: number }) {
+function VolumeCard({
+  label,
+  value,
+  delayMs = 0,
+}: {
+  label: string;
+  value: number;
+  delayMs?: number;
+}) {
   return (
-    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+    <div
+      className="reveal-up surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
       <MonoLabel>{label}</MonoLabel>
       <div className="mt-2 font-mono text-2xl tabular-nums text-lunari-cream">
         {value.toLocaleString("en-US")}
@@ -104,13 +115,18 @@ function HealthStat({
   label,
   value,
   tone = "ok",
+  delayMs = 0,
 }: {
   label: string;
   value: string;
   tone?: "ok" | "warn" | "alert";
+  delayMs?: number;
 }) {
   return (
-    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+    <div
+      className="reveal-up surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
       <MonoLabel>{label}</MonoLabel>
       <div
         className={cn(
@@ -174,9 +190,9 @@ export default async function DeliverabilityPage() {
       <div>
         <MonoLabel>send volume</MonoLabel>
         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <VolumeCard label="today" value={s.sendsToday} />
-          <VolumeCard label="last 7 days" value={s.sends7d} />
-          <VolumeCard label="all time" value={s.sendsTotal} />
+          <VolumeCard label="today" value={s.sendsToday} delayMs={0} />
+          <VolumeCard label="last 7 days" value={s.sends7d} delayMs={45} />
+          <VolumeCard label="all time" value={s.sendsTotal} delayMs={90} />
         </div>
       </div>
 
@@ -184,18 +200,28 @@ export default async function DeliverabilityPage() {
       <div>
         <MonoLabel>deliverability health</MonoLabel>
         <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <HealthStat label="delivered" value={s.delivered.toLocaleString("en-US")} />
+          <HealthStat
+            label="delivered"
+            value={s.delivered.toLocaleString("en-US")}
+            delayMs={0}
+          />
           <HealthStat
             label="bounce rate"
             value={pct(s.bounceRate)}
             tone={rateTone(s.bounceRate, s.bouncePauseRate)}
+            delayMs={45}
           />
           <HealthStat
             label="complaint rate"
             value={pct(s.complaintRate)}
             tone={rateTone(s.complaintRate, s.complaintPauseRate)}
+            delayMs={90}
           />
-          <HealthStat label="suppressed" value={s.suppressed.toLocaleString("en-US")} />
+          <HealthStat
+            label="suppressed"
+            value={s.suppressed.toLocaleString("en-US")}
+            delayMs={135}
+          />
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-lunari-neutral-500">
           rates measured against {s.sentLedger.toLocaleString("en-US")} logged sends.

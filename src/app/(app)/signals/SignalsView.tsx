@@ -151,8 +151,13 @@ export function SignalsView({
               moment. the second someone fits, it lands here.
             </div>
           ) : (
-            live.map((hit) => (
-              <HitCard key={hit.id} hit={hit} focal={hit.id === topHitId} />
+            live.map((hit, i) => (
+              <HitCard
+                key={hit.id}
+                hit={hit}
+                focal={hit.id === topHitId}
+                index={i}
+              />
             ))
           )}
         </div>
@@ -169,7 +174,9 @@ export function SignalsView({
               no agents running. an agent watches one signal type for your icp.
             </div>
           ) : (
-            agents.map((agent) => <AgentCard key={agent.id} agent={agent} />)
+            agents.map((agent, i) => (
+              <AgentCard key={agent.id} agent={agent} index={i} />
+            ))
           )}
         </div>
       </section>
@@ -187,7 +194,15 @@ export function SignalsView({
   );
 }
 
-function HitCard({ hit, focal = false }: { hit: SignalHitRow; focal?: boolean }) {
+function HitCard({
+  hit,
+  focal = false,
+  index = 0,
+}: {
+  hit: SignalHitRow;
+  focal?: boolean;
+  index?: number;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [dismissing, setDismissing] = useState(false);
@@ -223,11 +238,12 @@ function HitCard({ hit, focal = false }: { hit: SignalHitRow; focal?: boolean })
   return (
     <div
       className={cn(
-        "planetarium rounded-lg border p-4 hover:-translate-y-px",
+        "reveal-up planetarium rounded-lg border p-4 hover:-translate-y-px",
         focal
           ? "surface-focal border-lunari-gold/40 hover:border-lunari-gold/60"
           : "surface-raised border-lunari-surface-elevated bg-lunari-surface hover:border-gen-accent/30",
       )}
+      style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
     >
       {focal ? (
         <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.2em] text-lunari-gold">
@@ -306,7 +322,7 @@ function HitCard({ hit, focal = false }: { hit: SignalHitRow; focal?: boolean })
   );
 }
 
-function AgentCard({ agent }: { agent: SignalAgent }) {
+function AgentCard({ agent, index = 0 }: { agent: SignalAgent; index?: number }) {
   const queryClient = useQueryClient();
   const industry = Array.isArray(agent.icp.industry)
     ? (agent.icp.industry as string[]).join(", ")
@@ -352,7 +368,10 @@ function AgentCard({ agent }: { agent: SignalAgent }) {
   const active = agent.status === "active";
 
   return (
-    <div className="surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4">
+    <div
+      className="reveal-up surface-raised rounded-lg border border-lunari-surface-elevated bg-lunari-surface p-4"
+      style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm text-lunari-cream">{agent.name}</div>
