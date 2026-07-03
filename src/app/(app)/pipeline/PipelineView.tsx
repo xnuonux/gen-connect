@@ -1,8 +1,11 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, Table2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
+import { createClient } from "@/lib/supabase/client";
+import { useRealtimeInvalidate } from "@/lib/supabase/use-realtime-invalidate";
 import { PipelineKanban } from "./PipelineKanban";
 import { PipelineTable } from "./PipelineTable";
 import { type Contact } from "@/lib/types/contact";
@@ -44,6 +47,25 @@ export function PipelineView({
   initialContacts: Contact[];
 }) {
   const view = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const queryClient = useQueryClient();
+  const [supabase] = useState(() => createClient());
+
+  // the board comes alive when gen acts. the copilot + the signal auto-fire path
+  // insert / move / tag / enrich contacts server-side; this realtime channel on
+  // gc_contacts (v0_1_17) refetches the shared ["contacts"] query the instant a
+  // change lands, so whichever view is open fills itself in ... no manual reload.
+  // rls scopes the socket to the caller's own rows. the 30s poll in the queries is
+  // the belt-and-suspenders floor if the socket ever drops.
+  useRealtimeInvalidate({
+    supabase,
+    channelName: "gc-contacts-pipeline",
+    bindings: [
+      { table: "gc_contacts", event: "INSERT" },
+      { table: "gc_contacts", event: "UPDATE" },
+    ],
+    queryClient,
+    invalidateKeys: [["contacts"]],
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
