@@ -757,7 +757,10 @@ export function SequenceEditor({
                   fitView
                   proOptions={{ hideAttribution: true }}
                 >
-                  <Background color="var(--lunari-surface-elevated)" gap={24} />
+                  {/* a moon-dim grid ... reads on BOTH the emerald mass (left) and the
+                      ruby pooling (right) of THE DEEP substrate, where the old surface
+                      tint vanished into the emerald side. */}
+                  <Background color="rgba(220,227,240,0.10)" gap={24} />
                   <Controls
                     style={{
                       background: "var(--lunari-surface)",
