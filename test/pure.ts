@@ -41,6 +41,7 @@ import {
 import { FORBIDDEN_PHRASES } from "../src/lib/types/draft.ts";
 import { flameScore } from "../src/lib/signals/flame.ts";
 import { evaluateTrigger } from "../src/lib/triggers/evaluate.ts";
+import { shouldCoalesce } from "../src/lib/triggers/cooldown.ts";
 import type { SignalHit, TriggerContact } from "../src/lib/types/signal.ts";
 import { validateGraph } from "../src/lib/sequences/validate.ts";
 import { compileRun } from "../src/lib/sequences/compile.ts";
@@ -549,6 +550,39 @@ ok(
       s.includes("personal site: dom.dev") &&
       s.includes("based in: chicago")
     );
+  })(),
+);
+
+// --- shouldCoalesce: the 7-day per-contact cooldown (one sequence per contact/window) ---
+const chNow = Date.parse("2026-06-10T00:00:00.000Z");
+const mkHit = (score: number, daysAgo: number) =>
+  ({
+    aiScore: score,
+    detectedAt: new Date(chNow - daysAgo * 864e5).toISOString(),
+    signalType: "promotion",
+    raw: {},
+  }) as unknown as SignalHit;
+ok("coalesce false with no history", shouldCoalesce(mkHit(0.8, 0), [], chNow).coalesce === false);
+ok(
+  "coalesce true within the 7d window",
+  shouldCoalesce(mkHit(0.6, 0), [mkHit(0.9, 2)], chNow).coalesce === true,
+);
+ok(
+  "coalesce false outside the 7d window",
+  shouldCoalesce(mkHit(0.6, 0), [mkHit(0.9, 10)], chNow).coalesce === false,
+);
+ok(
+  "coalesce primary = the new hit when it outscores the incumbent",
+  (() => {
+    const r = shouldCoalesce(mkHit(0.9, 0), [mkHit(0.5, 1)], chNow);
+    return r.coalesce && r.primary.aiScore === 0.9 && r.secondary?.aiScore === 0.5;
+  })(),
+);
+ok(
+  "coalesce primary = the incumbent when it outscores the new hit",
+  (() => {
+    const r = shouldCoalesce(mkHit(0.4, 0), [mkHit(0.8, 1)], chNow);
+    return r.coalesce && r.primary.aiScore === 0.8 && r.secondary?.aiScore === 0.4;
   })(),
 );
 

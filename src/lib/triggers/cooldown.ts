@@ -9,7 +9,7 @@ import { type SignalHit } from "@/lib/types/signal";
 // the live auto-fire path mints a fresh contact per X hit (each a different
 // person), so per-contact coalesce has nothing to dedupe against yet. it wires in
 // with the founder-lane signals (promotion/funding for a KNOWN contact), where the
-// same person can produce multiple hits in a window. fixture tests pending. see
+// same person can produce multiple hits in a window. verified with fixtures in test/pure.ts. see
 // docs/06-signals-spec.md "cooldown policy".
 
 const WINDOW_MS = 7 * 24 * 36e5;
