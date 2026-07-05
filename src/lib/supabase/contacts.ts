@@ -50,8 +50,18 @@ function mapContact(row: ContactRow): Contact {
       typeof row.hook === "string" && row.hook.trim().length > 0
         ? row.hook.trim()
         : null,
+    // only the person's OWN channels count toward the presence chip: a link needs a
+    // url and must not be a company_site (the employer's channel, not theirs). keeps
+    // the chip honest + aligned with what the drafter is fed + the drawer renders.
     presenceCount: Array.isArray(row.footprint_links)
-      ? row.footprint_links.length
+      ? row.footprint_links.filter((l) => {
+          const o = (l ?? {}) as Record<string, unknown>;
+          return (
+            typeof o.url === "string" &&
+            o.url.length > 0 &&
+            o.source !== "company_site"
+          );
+        }).length
       : 0,
     lastActionAt: row.last_action_at,
     createdAt: row.created_at,

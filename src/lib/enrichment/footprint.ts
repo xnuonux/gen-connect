@@ -18,7 +18,11 @@ export type FootprintLink = {
   handle?: string;
   // true when the person verified this account on their own gravatar profile.
   verified: boolean;
-  source: "gravatar" | "github" | "site";
+  // where it came from. "site" is the person's OWN homepage (a github blog, etc.) ...
+  // unambiguously theirs. "company_site" is the fallback crawl of the email/company
+  // domain: those channels + tagline belong to the COMPANY, not the individual, so
+  // the drafter must NEVER attribute them to the person (the no-fabrication line).
+  source: "gravatar" | "github" | "site" | "company_site";
 };
 
 export type Footprint = {
@@ -49,12 +53,18 @@ export function summarizeFootprintForDraft(raw: unknown): string | null {
   const channels = links
     .filter(
       (l): l is FootprintLink =>
-        !!l && typeof l === "object" && typeof l.platform === "string",
+        !!l &&
+        typeof l === "object" &&
+        typeof l.platform === "string" &&
+        // ONLY the person's own channels. a company_site link is the employer's
+        // channel, never the individual's ... feeding it would fabricate the
+        // attribution the drafter's honesty rule forbids.
+        l.source !== "company_site",
     )
     .slice(0, 6)
     .map((l) => {
-      const handle = l.handle ? ` @${l.handle}` : "";
-      const verified = l.verified ? " (verified)" : "";
+      const handle = typeof l.handle === "string" && l.handle ? ` @${l.handle}` : "";
+      const verified = l.verified === true ? " (verified)" : "";
       return `${l.platform}${handle}${verified}`;
     });
   if (channels.length) bits.push(`public channels: ${channels.join(", ")}`);
@@ -472,14 +482,26 @@ export async function resolveFootprint(
   // domain (skipping freemail). this is the lever that un-sparses a typical
   // business lead with no gravatar/github.
   const domain = str(input.domain ?? undefined)?.toLowerCase();
-  const siteCandidate =
-    str(profile.website ?? undefined) ??
-    (domain && !FREEMAIL.has(domain) ? domain : undefined);
+  const ownSite = str(profile.website ?? undefined);
+  const companyDomain =
+    domain && !FREEMAIL.has(domain) ? domain : undefined;
+  const siteCandidate = ownSite ?? companyDomain;
   if (siteCandidate) {
     const site = await fromWebsite(siteCandidate);
     if (site) {
-      profile = mergeProfile(profile, site.profile);
-      links.push(...site.links);
+      if (ownSite) {
+        // their own homepage ... every link + the bio is genuinely theirs.
+        profile = mergeProfile(profile, site.profile);
+        links.push(...site.links);
+      } else {
+        // company-domain fallback ... the channels + og:tagline belong to the
+        // COMPANY, not the person. tag the links company_site (so the drafter feed
+        // excludes them) and DO NOT merge the company tagline as the person's bio or
+        // claim the company homepage as their personal site. honesty over coverage.
+        links.push(
+          ...site.links.map((l) => ({ ...l, source: "company_site" as const })),
+        );
+      }
       sources.push("website");
     }
   }

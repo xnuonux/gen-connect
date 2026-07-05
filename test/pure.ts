@@ -507,6 +507,34 @@ ok(
   })(),
 );
 ok(
+  "footprint summary EXCLUDES company_site channels (no fabricated attribution)",
+  (() => {
+    const s = summarizeFootprintForDraft({
+      links: [
+        { platform: "github", url: "u", handle: "dom", verified: true, source: "github" },
+        { platform: "youtube", url: "u2", handle: "acmehq", verified: false, source: "company_site" },
+        { platform: "linkedin", url: "u3", verified: false, source: "company_site" },
+      ],
+      sources: ["github", "website"],
+    });
+    return (
+      typeof s === "string" &&
+      s.includes("github @dom") &&
+      !s.includes("youtube") &&
+      !s.includes("linkedin")
+    );
+  })(),
+);
+ok(
+  "footprint summary null when only company_site channels (nothing truly theirs)",
+  summarizeFootprintForDraft({
+    links: [
+      { platform: "x", url: "u", verified: false, source: "company_site" },
+    ],
+    sources: ["website"],
+  }) === null,
+);
+ok(
   "footprint summary carries bio + site + location",
   (() => {
     const s = summarizeFootprintForDraft({
