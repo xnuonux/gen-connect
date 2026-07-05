@@ -58,7 +58,7 @@ export function ContactCard({
       {...props}
     >
       <div className="flex items-center gap-2.5">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lunari-black font-mono text-[10px] text-lunari-neutral-400">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lunari-surface-elevated font-mono text-[10px] text-lunari-neutral-400">
           {initials(contact.name)}
         </span>
         <span className="truncate text-sm font-medium text-lunari-cream">

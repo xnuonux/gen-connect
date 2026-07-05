@@ -258,7 +258,7 @@ export function ContactDrawerPanel({
       <aside className="planetarium absolute right-0 top-0 flex h-full w-[360px] flex-col border-l border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70">
         {/* sticky header */}
         <header className="flex items-center gap-3 border-b border-lunari-surface-elevated px-5 py-4">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-lunari-black font-mono text-xs text-lunari-neutral-400">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-lunari-surface-elevated font-mono text-xs text-lunari-neutral-400">
             {initials(detail.name)}
           </span>
           <div className="min-w-0 flex-1">

@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Cinzel } from "next/font/google";
 import "./globals.css";
+import "../design-system/deep/deep.css";
+import "./deep-gen.css";
+import DeepBackdrop from "./DeepBackdrop";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,10 +33,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" data-theme="deep" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${cinzel.variable} antialiased bg-lunari-black text-lunari-cream`}
+        className={`${geistSans.variable} ${geistMono.variable} ${cinzel.variable} deep-grain antialiased bg-lunari-black text-lunari-cream`}
       >
+        <DeepBackdrop />
         {children}
       </body>
     </html>

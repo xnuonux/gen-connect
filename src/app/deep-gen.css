@@ -1,0 +1,78 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   THE DEEP · GEN CONNECT · rough-cut emerald + burmese-ruby on the shared dreamslur family.
+   GEN's stone = forest green #2d5f3f (the closer). the EmeraldShader is the substrate;
+   this retints gen's tokens emerald-forward with ruby accents + opens surfaces to glass.
+   scoped to [data-theme='deep'] (set on <html> in layout.tsx).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+[data-theme='deep'] {
+  --lunari-black: transparent;                        /* let the emerald show */
+  --lunari-surface: rgba(10, 22, 15, 0.52);           /* deep emerald-glass */
+  --lunari-surface-elevated: rgba(16, 30, 21, 0.6);
+  --lunari-crimson: #ff4d6d;                           /* alert/destructive ... hue-shifted BRIGHT off the shader's oxblood ruby (#a81f38) so a blocked/bounce/error state never camouflages into the ambient ruby pooling on the right */
+  --gen-accent: #3f8f5a;                                /* GEN's emerald, lifted so it reads on the dark */
+  --gen-accent-soft: rgba(63, 143, 90, 0.2);
+  --lunari-cream: #eef4ea;                              /* cool cream, faint emerald cast */
+}
+
+[data-theme='deep'] body { background: transparent !important; }
+
+/* content floats above the emerald substrate (z0) */
+[data-theme='deep'] body > *:not(canvas) { position: relative; z-index: 2; }
+
+/* the full-bleed app shell ... a WHISPER of emerald tint, NO blur. blur belongs on
+   panels, not the viewport ... blurring the root would smear the shader's crystalline
+   facets + the left-emerald / right-ruby asymmetry into flat mush everywhere. */
+[data-theme='deep'] .lunari-canvas {
+  background: rgba(8, 14, 10, 0.16) !important;
+  backdrop-filter: none;
+}
+
+/* the real panels ... emerald-glass so the stone reads through. scoped to the actual
+   panel classes ONLY (NOT [class*='surface'], which substring-matches every
+   border-lunari-surface-elevated divider and would fan an expensive backdrop-filter
+   across dozens of nested nodes per screen + tint borderless dividers). */
+[data-theme='deep'] .surface-raised,
+[data-theme='deep'] .surface-focal {
+  background: rgba(9, 18, 13, 0.46) !important;
+  backdrop-filter: blur(13px) saturate(1.1);
+  -webkit-backdrop-filter: blur(13px) saturate(1.1);
+  border-color: rgba(63, 143, 90, 0.16) !important;
+}
+
+/* the rail nav ... emerald glass with a ruby-touched edge (the left mass) */
+[data-theme='deep'] nav,
+[data-theme='deep'] [class*='rail'],
+[data-theme='deep'] [class*='Rail'] {
+  background: rgba(7, 16, 11, 0.5) !important;
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  border-right: 1px solid rgba(63, 143, 90, 0.14) !important;
+}
+
+/* tailwind bg utilities that hardcode the black ... open them so the shader shows */
+[data-theme='deep'] .bg-lunari-black,
+[data-theme='deep'] .bg-lunari-surface { background-color: transparent !important; }
+
+/* the modal / drawer / palette SCRIMS. `bg-lunari-black/N` can't carry its alpha
+   (tailwind can't parse the var() color, so the opacity modifier is silently dropped),
+   and with --lunari-black now transparent the scrim would vanish entirely ... the busy
+   animated shader would bleed through every overlay undimmed, wrecking readability.
+   give the slash-modifier variants a real dark scrim. (plain .bg-lunari-black above
+   stays transparent ... it's the page background, not a scrim.) */
+[data-theme='deep'] [class*="bg-lunari-black/"] {
+  background-color: rgba(4, 6, 5, 0.62) !important;
+}
+
+/* form wells: a plain `bg-lunari-black` input/select/textarea would inherit the
+   transparent page-bg rule above and lose its recessed look. give the form controls a
+   dark emerald well so they still read as inputs over the shader (covers every plain
+   bg-lunari-black field across triggers / signals / csv / pipeline filters in one
+   rule). the /N-modifier fields already get the scrim fill above. */
+[data-theme='deep'] input.bg-lunari-black,
+[data-theme='deep'] select.bg-lunari-black,
+[data-theme='deep'] textarea.bg-lunari-black {
+  background-color: rgba(6, 12, 8, 0.55) !important;
+}
+
+[data-theme='deep'] ::selection { background: rgba(45, 95, 63, 0.4); color: #eef4ea; }

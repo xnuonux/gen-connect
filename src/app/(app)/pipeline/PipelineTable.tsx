@@ -204,7 +204,7 @@ export function PipelineTable({
   return (
     <div className="min-h-0 flex-1 overflow-auto px-8 pb-24">
       <table className="w-full border-separate border-spacing-0 text-sm">
-        <thead className="sticky top-0 z-10 bg-lunari-black">
+        <thead className="sticky top-0 z-10 bg-lunari-surface-elevated">
           <tr>
             <th className="w-8 border-b border-lunari-surface-elevated px-3 py-2">
               <input
