@@ -103,13 +103,17 @@ export async function enrichContactAction(
         const priorMs = typeof prior === "string" ? new Date(prior).getTime() : 0;
         if (!priorMs || Date.now() - priorMs > FOOTPRINT_TTL_MS) {
           const fp = await resolveFootprint({ email: c.email, domain: null });
-          if (fp.links.length > 0 || fp.bio || fp.name) {
-            await saveContactFootprint({
-              contactId: c.id,
-              footprint: fp,
-              fields: footprintToContactFields(fp),
-            });
-          }
+          // persist ALWAYS ... even an empty resolve stamps footprint_resolved_at, so
+          // the ttl registers and a footprint-less contact (the common freemail case)
+          // isn't re-hit against gravatar on every enrich (negative caching). an empty
+          // footprint reads back as 0 presence + no draft context, so it adds no noise.
+          // the manual "find their presence" button ignores the ttl, so a later
+          // domain-crawl resolve is never blocked.
+          await saveContactFootprint({
+            contactId: c.id,
+            footprint: fp,
+            fields: footprintToContactFields(fp),
+          });
         }
       }
     } catch (fpErr) {
