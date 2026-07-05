@@ -879,7 +879,7 @@ function TemplatePicker({
         role="dialog"
         aria-modal="true"
         aria-label="start a sequence"
-        className="reveal-up relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70"
+        className="reveal-up relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-black/70"
       >
         <div className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-3.5">
           <div className="flex items-center gap-2">
@@ -957,7 +957,7 @@ function RunPreview({
         role="dialog"
         aria-modal="true"
         aria-label="run preview"
-        className="reveal-up relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70"
+        className="reveal-up relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-black/70"
       >
         <div className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-3.5">
           <div className="flex items-center gap-2">

@@ -107,7 +107,7 @@ export function CsvImportDialog() {
             onClick={close}
             className="absolute inset-0 cursor-default bg-lunari-black/60"
           />
-          <div className="planetarium relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70">
+          <div className="planetarium relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-black/70">
             <header className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-4">
               <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
                 import csv

@@ -33,7 +33,8 @@
    border-lunari-surface-elevated divider and would fan an expensive backdrop-filter
    across dozens of nested nodes per screen + tint borderless dividers). */
 [data-theme='deep'] .surface-raised,
-[data-theme='deep'] .surface-focal {
+[data-theme='deep'] .surface-focal,
+[data-theme='deep'] .bg-lunari-surface {
   background: rgba(9, 18, 13, 0.46) !important;
   backdrop-filter: blur(13px) saturate(1.1);
   -webkit-backdrop-filter: blur(13px) saturate(1.1);
@@ -50,9 +51,11 @@
   border-right: 1px solid rgba(63, 143, 90, 0.14) !important;
 }
 
-/* tailwind bg utilities that hardcode the black ... open them so the shader shows */
-[data-theme='deep'] .bg-lunari-black,
-[data-theme='deep'] .bg-lunari-surface { background-color: transparent !important; }
+/* the page-background black ... open it so the shader shows through the shell. (bare
+   .bg-lunari-surface is NOT opened here ... it's used on real panels (the bulk bar, the
+   command palette, the contact rail, the csv dialog) that want the emerald glass above,
+   not transparency ... zeroing it left them tint-less over the shader.) */
+[data-theme='deep'] .bg-lunari-black { background-color: transparent !important; }
 
 /* the modal / drawer / palette SCRIMS. `bg-lunari-black/N` can't carry its alpha
    (tailwind can't parse the var() color, so the opacity modifier is silently dropped),
@@ -73,6 +76,19 @@
 [data-theme='deep'] select.bg-lunari-black,
 [data-theme='deep'] textarea.bg-lunari-black {
   background-color: rgba(6, 12, 8, 0.55) !important;
+}
+
+/* the sequences canvas (xyflow) ... its dark theme paints an OPAQUE #141414 slab over
+   the whole canvas (via --xy-background-color), hiding the shader on the largest
+   surface in the app. force the canvas transparent so THE DEEP shows through, and keep
+   the zoom controls on the emerald glass rather than xyflow's grey. */
+[data-theme='deep'] .react-flow {
+  --xy-background-color: transparent !important;
+  --xy-background-color-default: transparent !important;
+  background: transparent !important;
+}
+[data-theme='deep'] .react-flow__controls-button {
+  background: rgba(9, 18, 13, 0.6) !important;
 }
 
 [data-theme='deep'] ::selection { background: rgba(45, 95, 63, 0.4); color: #eef4ea; }

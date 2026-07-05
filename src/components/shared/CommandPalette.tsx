@@ -186,7 +186,7 @@ export function CommandPalette() {
             aria-modal="true"
             aria-label="command palette"
             onKeyDown={onListKey}
-            className="reveal-up relative w-full max-w-lg overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70"
+            className="reveal-up relative w-full max-w-lg overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-black/70"
           >
             <div className="flex items-center gap-2.5 border-b border-lunari-surface-elevated px-4">
               <Search className="h-4 w-4 shrink-0 stroke-[1.25] text-lunari-neutral-400" />

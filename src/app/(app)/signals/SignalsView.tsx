@@ -494,7 +494,7 @@ function AgentWizard({
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-lunari-black/70 backdrop-blur-sm"
       />
-      <div className="reveal-up relative w-full max-w-md overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-lunari-black/70">
+      <div className="reveal-up relative w-full max-w-md overflow-hidden rounded-xl border border-lunari-surface-elevated bg-lunari-surface shadow-2xl shadow-black/70">
         <div className="flex items-center justify-between border-b border-lunari-surface-elevated px-5 py-3.5">
           <div className="flex items-center gap-2">
             <Radio className="h-4 w-4 stroke-[1.25] text-gen-accent" />

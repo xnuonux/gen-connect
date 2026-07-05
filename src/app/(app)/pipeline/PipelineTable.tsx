@@ -309,7 +309,7 @@ export function PipelineTable({
       {/* the bulk action bar ... slides up from the bottom on selection. */}
       {picked.size > 0 ? (
         <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-8">
-          <div className="planetarium flex items-center gap-3 rounded-lg border border-lunari-surface-elevated bg-lunari-surface px-4 py-2.5 shadow-2xl shadow-lunari-black/70">
+          <div className="planetarium flex items-center gap-3 rounded-lg border border-lunari-surface-elevated bg-lunari-surface px-4 py-2.5 shadow-2xl shadow-black/70">
             <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-lunari-neutral-400">
               {picked.size} selected
             </span>
