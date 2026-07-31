@@ -13,6 +13,10 @@ import {
   type UniboxMessage,
 } from "@/lib/supabase/unibox";
 import { getVoiceProfile } from "@/lib/supabase/voice";
+import {
+  getUserSettings,
+  upsertCalcomBookingUrl,
+} from "@/lib/supabase/settings";
 import { updateContactStage } from "@/lib/supabase/contacts";
 import { recordOutcome } from "@/lib/supabase/outcomes";
 import { draftReply, type ReplyTranscriptLine } from "@/lib/ai/reply";
@@ -79,6 +83,56 @@ export async function markBookedAction(
   } catch (err) {
     console.error("[unibox] mark booked failed", err);
     return { ok: false, error: "couldn't mark that booked ... try again." };
+  }
+}
+
+export type SaveBookingLinkResult = { ok: true } | { ok: false; error: string };
+
+// the user's saved cal.com booking link ... prefills the unibox input and
+// powers the composer's insert-booking-link. null when none is saved yet.
+export async function fetchBookingLink(): Promise<string | null> {
+  const user = await requireUser();
+  if (!user) return null;
+  try {
+    const settings = await getUserSettings();
+    return settings.calcomBookingUrl;
+  } catch (err) {
+    console.error("[unibox] booking link load failed", err);
+    return null;
+  }
+}
+
+const BookingLinkInput = z.object({
+  url: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((u) => u === "" || u.startsWith("https://")),
+});
+
+// save (or clear, with an empty string) the user's cal.com booking link. any
+// https url is honest ... cal.com hosted, a cal.com subdomain, or self-hosted.
+// once saved, a booking fires the calcom webhook and marks the contact booked
+// on its own.
+export async function saveBookingLinkAction(
+  rawInput: unknown,
+): Promise<SaveBookingLinkResult> {
+  const user = await requireUser();
+  if (!user) return { ok: false, error: "sign in first ..." };
+
+  const parsed = BookingLinkInput.safeParse(rawInput);
+  if (!parsed.success) {
+    return { ok: false, error: "https links only ... check the url." };
+  }
+
+  try {
+    await upsertCalcomBookingUrl(
+      parsed.data.url === "" ? null : parsed.data.url,
+    );
+    return { ok: true };
+  } catch (err) {
+    console.error("[unibox] booking link save failed", err);
+    return { ok: false, error: "couldn't save that link ... try again." };
   }
 }
 

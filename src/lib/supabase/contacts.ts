@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { ContactHit } from "@/lib/commands/registry";
 import {
   KANBAN_STAGES,
@@ -247,6 +248,68 @@ export async function updateContactStage(
 ): Promise<void> {
   const supabase = await createClient();
   const { error } = await supabase
+    .from("gc_contacts")
+    .update({ stage })
+    .eq("id", contactId);
+
+  if (error) {
+    throw new Error(`could not move contact ... ${error.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// webhook side (service role, no session). the calcom webhook resolves the
+// booked contact across ALL users, so these twins take the admin client
+// explicitly and bypass rls ... exactly like lib/unibox/inbound.
+// ---------------------------------------------------------------------------
+
+type AdminClient = NonNullable<ReturnType<typeof createAdminClient>>;
+
+export type ContactEmailMatch = {
+  id: string;
+  userId: string;
+  email: string | null;
+  updatedAt: string;
+};
+
+// every contact with this exact email, across all users. emails are stored
+// lowercased on write; the functional unique index (user_id, lower(email))
+// means at most one match per user. the webhook's pure layer picks the owner.
+export async function findContactsByEmailService(
+  admin: AdminClient,
+  email: string,
+): Promise<ContactEmailMatch[]> {
+  const { data, error } = await admin
+    .from("gc_contacts")
+    .select("id, user_id, email, updated_at")
+    .eq("email", email.toLowerCase());
+
+  if (error) {
+    throw new Error(`could not look up contacts ... ${error.message}`);
+  }
+  return (
+    (data ?? []) as {
+      id: string;
+      user_id: string;
+      email: string | null;
+      updated_at: string;
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    email: r.email,
+    updatedAt: r.updated_at,
+  }));
+}
+
+// the service-role twin of updateContactStage ... the id was already resolved
+// to a real row by findContactsByEmailService, so this moves it directly.
+export async function updateContactStageService(
+  admin: AdminClient,
+  contactId: string,
+  stage: ContactStage,
+): Promise<void> {
+  const { error } = await admin
     .from("gc_contacts")
     .update({ stage })
     .eq("id", contactId);

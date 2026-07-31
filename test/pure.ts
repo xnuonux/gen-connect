@@ -49,6 +49,13 @@ import { dueSteps } from "../src/lib/sequences/due.ts";
 import { pickSend } from "../src/lib/sequences/variants.ts";
 import { summarizeFootprintForDraft } from "../src/lib/enrichment/footprint.ts";
 import type { SequenceGraph } from "../src/lib/types/sequence.ts";
+import {
+  verifyCalcomSignature,
+  normalizeCalcomPayload,
+  resolveBookingEmails,
+  pickContactMatch,
+} from "../src/lib/calcom/booking.ts";
+import { createHmac } from "node:crypto";
 
 let pass = 0;
 let fail = 0;
@@ -585,6 +592,99 @@ ok(
     return r.coalesce && r.primary.aiScore === 0.8 && r.secondary?.aiScore === 0.4;
   })(),
 );
+
+// --- calcom webhook: signature + payload + contact resolution ---
+const CAL_SECRET = "cal-secret-test";
+const calRaw = JSON.stringify({
+  triggerEvent: "BOOKING_CREATED",
+  createdAt: "2026-07-31T09:00:00.000Z",
+  payload: {
+    startTime: "2026-08-02T15:00:00.000Z",
+    organizer: { email: "Dom@Lunari.pro", name: "dom" },
+    attendees: [
+      { email: "Marisol@Northbound.studio", name: "marisol" },
+      { email: "dom@lunari.pro" },
+    ],
+  },
+});
+const calSig = createHmac("sha256", CAL_SECRET)
+  .update(calRaw, "utf8")
+  .digest("hex");
+ok("calcom signature verifies", verifyCalcomSignature(CAL_SECRET, calSig, calRaw));
+ok(
+  "calcom wrong signature rejected",
+  !verifyCalcomSignature(CAL_SECRET, "deadbeef", calRaw),
+);
+ok(
+  "calcom tampered body rejected",
+  !verifyCalcomSignature(CAL_SECRET, calSig, `${calRaw} `),
+);
+ok(
+  "calcom missing header rejected",
+  !verifyCalcomSignature(CAL_SECRET, null, calRaw),
+);
+
+const booking = normalizeCalcomPayload(JSON.parse(calRaw));
+ok(
+  "calcom payload parses",
+  booking !== null && booking.triggerEvent === "BOOKING_CREATED",
+);
+ok("calcom organizer lowercased", booking?.organizerEmail === "dom@lunari.pro");
+ok("calcom startTime carried", booking?.startTime === "2026-08-02T15:00:00.000Z");
+ok(
+  "calcom junk payload rejected",
+  normalizeCalcomPayload({ nope: true }) === null,
+);
+ok(
+  "calcom non-booking trigger still parses (the route 200-ignores it)",
+  normalizeCalcomPayload({
+    triggerEvent: "BOOKING_CANCELLED",
+    payload: { attendees: [] },
+  })?.triggerEvent === "BOOKING_CANCELLED",
+);
+
+const calEmails = resolveBookingEmails(
+  booking?.attendeeEmails ?? [],
+  booking?.organizerEmail ?? null,
+);
+ok(
+  "calcom organizer excluded from candidates",
+  calEmails.length === 1 && calEmails[0] === "marisol@northbound.studio",
+  calEmails,
+);
+ok(
+  "calcom candidates dedupe case-insensitively",
+  resolveBookingEmails(["a@x.io", "A@x.io", "b@x.io"], null).length === 2,
+);
+ok(
+  "calcom all-organizer attendees resolve to nothing",
+  resolveBookingEmails(["me@x.io"], "me@x.io").length === 0,
+);
+
+const mOld = { id: "c-old", userId: "u1", updatedAt: "2026-07-01T00:00:00.000Z" };
+const mNew = { id: "c-new", userId: "u2", updatedAt: "2026-07-30T00:00:00.000Z" };
+ok(
+  "calcom single match wins, not ambiguous",
+  (() => {
+    const p = pickContactMatch([mOld]);
+    return p?.match.id === "c-old" && p.ambiguous === false;
+  })(),
+);
+ok(
+  "calcom ambiguous cross-user picks most recently updated",
+  (() => {
+    const p = pickContactMatch([mOld, mNew]);
+    return p?.match.id === "c-new" && p.ambiguous === true;
+  })(),
+);
+ok(
+  "calcom same-user matches are not cross-workspace ambiguous",
+  (() => {
+    const p = pickContactMatch([mOld, { ...mNew, userId: "u1" }]);
+    return p?.match.id === "c-new" && p.ambiguous === false;
+  })(),
+);
+ok("calcom no matches resolves null", pickContactMatch([]) === null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

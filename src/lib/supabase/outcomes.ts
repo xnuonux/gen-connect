@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { type OutcomeType } from "@/lib/types/outcome";
 
 // the dollars-not-fuel revenue ledger (gc_outcome_events, v0_1_7). one row per
@@ -59,5 +60,29 @@ export async function totalOpportunitiesCents(): Promise<number> {
     );
   } catch {
     return 0;
+  }
+}
+
+// the service-role twin of recordOutcome: a webhook has no session, so the
+// admin client (rls bypassed) writes with the user_id already resolved
+// explicitly. same row shape, same non-negative clamp.
+export async function recordOutcomeService(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  userId: string,
+  input: OutcomeInput,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { error } = await admin.from("gc_outcome_events").insert({
+      user_id: userId,
+      contact_id: input.contactId ?? null,
+      source_draft_id: input.sourceDraftId ?? null,
+      event_type: input.eventType,
+      dollar_value: Math.max(0, Math.round(input.dollarValue * 100) / 100),
+      note: input.note ?? null,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "failed" };
   }
 }

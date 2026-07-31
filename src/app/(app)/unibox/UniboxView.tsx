@@ -14,6 +14,7 @@ import {
   Inbox as InboxIcon,
   CornerDownLeft,
   CalendarCheck,
+  Link2,
 } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/utils/cn";
@@ -24,6 +25,8 @@ import {
   sendReplyAction,
   markThreadReadAction,
   markBookedAction,
+  fetchBookingLink,
+  saveBookingLinkAction,
 } from "@/app/actions/unibox";
 import { WinCelebration } from "@/components/shared/WinCelebration";
 import type { UniboxThread } from "@/lib/supabase/unibox";
@@ -167,6 +170,41 @@ export function UniboxView({
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "couldn't mark that booked."),
   });
+
+  // the user's cal.com booking link ... shared in outreach; a booking fires the
+  // calcom webhook and marks the contact booked on its own. linkDraft holds the
+  // in-progress edit (null = show the saved value).
+  const { data: bookingLink } = useQuery({
+    queryKey: ["booking-link"],
+    queryFn: fetchBookingLink,
+  });
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+
+  const linkSaveMut = useMutation({
+    mutationFn: async () => {
+      const r = await saveBookingLinkAction({
+        url: linkDraft ?? bookingLink ?? "",
+      });
+      if (!r.ok) throw new Error(r.error);
+      return r;
+    },
+    onSuccess: () => {
+      toast.success("booking link saved ... bookings mark themselves now.");
+      setLinkDraft(null);
+      void queryClient.invalidateQueries({ queryKey: ["booking-link"] });
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "couldn't save that link."),
+  });
+
+  // drop the saved booking link into the draft, on its own line.
+  function insertBookingLink() {
+    if (!bookingLink) return;
+    setComposer((c) => {
+      const base = c.trimEnd();
+      return base ? `${base}\n\n${bookingLink}` : bookingLink;
+    });
+  }
 
   function selectThread(id: string) {
     setSelectedId(id);
@@ -319,9 +357,25 @@ export function UniboxView({
                 className="w-full resize-none rounded-md border border-lunari-surface-elevated bg-lunari-black/40 px-3 py-2 text-sm text-lunari-cream placeholder:text-lunari-neutral-500 focus:outline-none focus:ring-1 focus:ring-gen-accent"
               />
               <div className="mt-2 flex items-center justify-between">
-                <span className="font-mono text-[10px] text-lunari-neutral-500">
-                  cmd+enter to send
-                </span>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={insertBookingLink}
+                    disabled={!bookingLink}
+                    title={
+                      bookingLink
+                        ? "drop your booking link into the reply"
+                        : "save your cal.com link on the right first ..."
+                    }
+                    className="planetarium flex items-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-2 py-1 font-mono text-[10px] text-gen-accent hover:bg-gen-accent/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Link2 className="h-3 w-3 stroke-[1.5]" />
+                    <span>booking link</span>
+                  </button>
+                  <span className="font-mono text-[10px] text-lunari-neutral-500">
+                    cmd+enter to send
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => sendMut.mutate()}
@@ -383,6 +437,30 @@ export function UniboxView({
               <CalendarCheck className="h-3.5 w-3.5 stroke-[1.25]" />
               <span>{bookMut.isPending ? "marking ..." : "mark booked"}</span>
             </button>
+            <div className="rounded-md border border-lunari-surface-elevated bg-lunari-black/40 p-2.5">
+              <div className="mb-1.5 font-mono text-[9px] uppercase tracking-[0.15em] text-lunari-neutral-500">
+                cal.com booking link
+              </div>
+              <input
+                value={linkDraft ?? bookingLink ?? ""}
+                onChange={(e) => setLinkDraft(e.target.value)}
+                placeholder="https://cal.com/you/intro ..."
+                spellCheck={false}
+                className="w-full rounded-md border border-lunari-surface-elevated bg-lunari-black/40 px-2.5 py-1.5 font-mono text-[11px] text-lunari-cream placeholder:text-lunari-neutral-500 focus:outline-none focus:ring-1 focus:ring-gen-accent"
+              />
+              <button
+                type="button"
+                onClick={() => linkSaveMut.mutate()}
+                disabled={linkSaveMut.isPending}
+                className="planetarium mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-gen-accent/40 bg-gen-accent-soft px-3 py-1.5 text-xs font-medium text-gen-accent hover:bg-gen-accent/20 disabled:opacity-50"
+              >
+                <Link2 className="h-3.5 w-3.5 stroke-[1.25]" />
+                <span>{linkSaveMut.isPending ? "saving ..." : "save link"}</span>
+              </button>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-lunari-neutral-500">
+                share it in outreach ... a booking marks them booked on its own.
+              </p>
+            </div>
           </div>
         ) : (
           <p className="text-xs text-lunari-neutral-400">no contact selected.</p>
